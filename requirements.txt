@@ -1,8 +1,8 @@
-fastapi
-uvicorn
-python-socketio[asgi]
-pydantic
-openai
-python-dotenv
-structlog
-prometheus-client
+fastapi>=0.110,<1.0
+uvicorn>=0.24,<0.31
+python-socketio>=5.10,<6.0
+pydantic>=2.6,<3.0
+openai>=1.1,<2.0
+python-dotenv>=1.0,<2.0
+structlog>=24.1,<25.0
+prometheus-client>=0.20,<1.0
