@@ -14,6 +14,10 @@ if not OPENAI_API_KEY:
     # Defer failure to first call, but keep message explicit for operators.
     pass
 
+# Fake mode allows exercising the end-to-end loop without hitting OpenAI.
+# Enable with TERMINUS_FAKE=true, or implicitly if no OPENAI_API_KEY is present.
+TERMINUS_FAKE = os.getenv("TERMINUS_FAKE", "false").strip().lower() in ("1", "true", "yes", "on") or not OPENAI_API_KEY
+
 ENABLE_PLANNER_WEB_SEARCH = os.getenv("ENABLE_PLANNER_WEB_SEARCH", "false").lower() == "true"
 ENABLE_PLANNER_FILE_SEARCH = os.getenv("ENABLE_PLANNER_FILE_SEARCH", "false").lower() == "true"
 ENABLE_PLANNER_MCP = os.getenv("ENABLE_PLANNER_MCP", "false").lower() == "true"
@@ -286,6 +290,21 @@ def run_executor(
 
     Returns: single-line bash command as str.
     """
+    # FAKE MODE: deterministic mappings from sub_task to one-line bash.
+    if TERMINUS_FAKE:
+        task = (sub_task or "").strip().lower()
+        if "print hello" in task:
+            return "echo hello"
+        if "print completion" in task or "print done" in task:
+            return "echo done"
+        if "cause failure" in task:
+            # Force non-zero exit to trigger error path
+            return "bash -lc 'exit 1'"
+        if "remediate" in task:
+            return "echo remediate"
+        # Default noop
+        return "echo noop"
+
     strict = EXECUTOR_STRICT_FUNCTION if strict_mode is None else bool(strict_mode)
 
     system_prompt = (

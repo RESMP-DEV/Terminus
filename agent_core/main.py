@@ -30,6 +30,27 @@ from agent_core.types import (
 from agent_core import sandbox
 from agent_core import api_client
 
+# ---- Utility coercion helpers (silence typing issues for sandbox result dicts) ----
+
+def _safe_int(value: object, default: int = -1) -> int:
+    try:
+        if isinstance(value, (int,)):
+            return int(value)
+        if isinstance(value, str):
+            return int(value) if value.strip().lstrip("-").isdigit() else default
+        # Accept objects that implement __int__
+        return int(value)  # type: ignore
+    except Exception:
+        return default
+
+def _safe_str(value: object, default: str = "") -> str:
+    try:
+        if value is None:
+            return default
+        return str(value)
+    except Exception:
+        return default
+
 # ---- Configuration & Logging ----
 
 load_dotenv()
@@ -93,6 +114,12 @@ SANDBOX_LATENCY = Histogram(
     buckets=(0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30),
 )
 
+# ---- Error Taxonomy ----
+
+def _cat(msg: str, category: str) -> str:
+    # Prefix message with category while keeping API contract unchanged
+    return f"[{category}] {msg}"
+
 # ---- Server (FastAPI + Socket.IO) ----
 
 # Socket.IO server (ASGI)
@@ -139,6 +166,9 @@ MIN_EXECUTE_GOAL_INTERVAL_SEC = float(os.getenv("EXECUTE_GOAL_MIN_INTERVAL_SEC",
 # Max payload size guard for goal
 MAX_GOAL_LEN = int(os.getenv("MAX_GOAL_LEN", "2000"))
 
+# Track running tasks per socket for cooperative cancellation
+_RUNNING_TASKS: Dict[str, asyncio.Task] = {}
+
 # ---- Event helpers ----
 
 async def emit_json(event_type: str, payload: Dict[str, Any], sid: str):
@@ -152,8 +182,14 @@ async def _on_startup():
 
 @app.on_event("shutdown")
 async def _on_shutdown():
-    # Place to gracefully stop background tasks if introduced later
-    logger.info("engine_shutdown")
+    # Graceful shutdown: cancel all running workflows
+    logger.info("engine_shutdown_begin", running=len(_RUNNING_TASKS))
+    for sid, task in list(_RUNNING_TASKS.items()):
+        if not task.done():
+            task.cancel()
+    # Give tasks a moment to cancel
+    await asyncio.sleep(0.1)
+    logger.info("engine_shutdown_end")
 
 # ---- Socket.IO handlers ----
 
@@ -165,11 +201,21 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     logger.info("socket_disconnected", sid=sid)
+    # Cancel any running workflow tied to this socket
+    task = _RUNNING_TASKS.pop(sid, None)
+    if task and not task.done():
+        task.cancel()
 
 # Contract: {"type": "execute_goal", "payload": {"goal": "..."}}
 @sio.event
 async def execute_goal(sid, data):
     REQUESTS_EXECUTE_GOAL.inc()
+
+    # Prevent concurrent workflows on same socket: cancel previous if running
+    prev = _RUNNING_TASKS.get(sid)
+    if prev and not prev.done():
+        prev.cancel()
+        await asyncio.sleep(0)  # yield to allow cancellation
 
     # Rate limit per socket
     now = time.time()
@@ -179,7 +225,7 @@ async def execute_goal(sid, data):
         logger.warning("rate_limited", sid=sid, min_interval=MIN_EXECUTE_GOAL_INTERVAL_SEC)
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=msg, failed_step="rate_limit").model_dump(),
+            ErrorDetectedPayload(error=_cat(msg, "rate_limit"), failed_step="rate_limit").model_dump(),
             sid,
         )
         return
@@ -195,7 +241,7 @@ async def execute_goal(sid, data):
         logger.warning("invalid_execute_goal_payload", sid=sid, error=str(e))
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=f"Invalid execute_goal payload: {e}", failed_step="validate").model_dump(),
+            ErrorDetectedPayload(error=_cat(f"Invalid execute_goal payload: {e}", "validation"), failed_step="validate").model_dump(),
             sid,
         )
         return
@@ -204,191 +250,220 @@ async def execute_goal(sid, data):
     if not goal:
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error="Goal must be a non-empty string", failed_step="validate").model_dump(),
+            ErrorDetectedPayload(error=_cat("Goal must be a non-empty string", "validation"), failed_step="validate").model_dump(),
             sid,
         )
         return
     if len(goal) > MAX_GOAL_LEN:
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=f"Goal too long (>{MAX_GOAL_LEN} chars)", failed_step="validate").model_dump(),
+            ErrorDetectedPayload(error=_cat(f"Goal too long (>{MAX_GOAL_LEN} chars)", "validation"), failed_step="validate").model_dump(),
             sid,
         )
         return
 
-    session_id = new_session_id()
-    logger.info("execute_goal_received", sid=sid, session_id=session_id, goal_len=len(goal))
-
-    # Planning
-    try:
-        with PLANNER_LATENCY.time():
-            plan_list: List[str] = api_client.run_planner(
-                user_goal=goal,
-                session_id=session_id,
-            )
-    except Exception as e:
-        logger.error("planner_error", sid=sid, session_id=session_id, error=str(e))
-        await emit_json(
-            "error_detected",
-            ErrorDetectedPayload(error=f"Planner error: {e}", failed_step="planning").model_dump(),
-            sid,
-        )
-        return
-
-    # Announce plan
-    await emit_json(
-        "plan_generated",
-        PlanGeneratedPayload(plan=plan_list).model_dump(),
-        sid,
-    )
-
-    # Execute steps sequentially with re-planning on error
-    history: List[Dict[str, Any]] = []
-    step_index = 0
-
-    while step_index < len(plan_list):
-        step = plan_list[step_index]
-
-        # Translate to bash command
+    async def _workflow():
+        session_id = new_session_id()
+        logger.info("execute_goal_received", sid=sid, session_id=session_id, goal_len=len(goal))
         try:
-            start_exec = time.time()
-            with EXECUTOR_LATENCY.time():
-                command = api_client.run_executor(
-                    sub_task=step,
-                    session_id=session_id,
-                    strict_mode=True,
-                )
-            logger.info(
-                "executor_command",
-                sid=sid,
-                session_id=session_id,
-                step_index=step_index,
-                step=step,
-                command=command,
-                latency=time.time() - start_exec,
-            )
-        except Exception as e:
-            logger.error("executor_error", sid=sid, session_id=session_id, step=step, error=str(e))
-            await emit_json(
-                "error_detected",
-                ErrorDetectedPayload(error=f"Executor error: {e}", failed_step=step).model_dump(),
-                sid,
-            )
-            # Attempt re-planning
-            await emit_json("re_planning", RePlanningPayload().model_dump(), sid)
+            # Planning
             try:
-                revised_goal = (
-                    f"Revise plan after failure.\nOriginal goal: {goal}\nFailed step: {step}\n"
-                    f"Error: {e}\nHistory: {json.dumps(history)[:4000]}"
-                )
                 with PLANNER_LATENCY.time():
-                    plan_list = api_client.run_planner(
-                        user_goal=revised_goal,
+                    plan_list: List[str] = api_client.run_planner(
+                        user_goal=goal,
                         session_id=session_id,
                     )
-                step_index = 0
-                await emit_json("plan_generated", PlanGeneratedPayload(plan=plan_list).model_dump(), sid)
-                continue
-            except Exception as e2:
-                logger.error("replanning_failed", sid=sid, session_id=session_id, error=str(e2))
-                await emit_json(
-                    "error_detected",
-                    ErrorDetectedPayload(error=f"Re-planning failed: {e2}", failed_step=step).model_dump(),
-                    sid,
-                )
-                return
-
-        # Notify UI of step executing + command
-        await emit_json(
-            "step_executing",
-            StepExecutingPayload(step=step, command=command).model_dump(),
-            sid,
-        )
-
-        # Execute in sandbox
-        STEPS_EXECUTED.inc()
-        start_sbx = time.time()
-        with SANDBOX_LATENCY.time():
-            result = sandbox.execute_command(command)
-
-        # Emit results
-        await emit_json(
-            "step_result",
-            StepResultPayload(
-                stdout=result.get("stdout", ""),
-                stderr=result.get("stderr", ""),
-                exit_code=int(result.get("exit_code", -1)),
-            ).model_dump(),
-            sid,
-        )
-
-        # Record history
-        history.append(
-            {
-                "step": step,
-                "command": command,
-                "stdout": result.get("stdout", ""),
-                "stderr": result.get("stderr", ""),
-                "exit_code": int(result.get("exit_code", -1)),
-                "sandbox_latency": time.time() - start_sbx,
-            }
-        )
-
-        # Error -> re-plan
-        if int(result.get("exit_code", -1)) != 0:
-            STEPS_FAILED.inc()
-            logger.warning(
-                "step_failed",
-                sid=sid,
-                session_id=session_id,
-                step_index=step_index,
-                step=step,
-                exit_code=result.get("exit_code"),
-            )
-            await emit_json(
-                "error_detected",
-                ErrorDetectedPayload(
-                    error=result.get("stderr", "")[:2000] or "unknown error",
-                    failed_step=step,
-                ).model_dump(),
-                sid,
-            )
-
-            await emit_json("re_planning", RePlanningPayload().model_dump(), sid)
-            try:
-                revised_goal = (
-                    f"Re-plan after command failure.\nOriginal goal: {goal}\n"
-                    f"Failed step: {step}\nCommand: {command}\n"
-                    f"stderr: {result.get('stderr','')[:2000]}\n"
-                    f"History: {json.dumps(history)[:4000]}"
-                )
-                with PLANNER_LATENCY.time():
-                    plan_list = api_client.run_planner(
-                        user_goal=revised_goal,
-                        session_id=session_id,
-                    )
-                step_index = 0
-                await emit_json("plan_generated", PlanGeneratedPayload(plan=plan_list).model_dump(), sid)
-                continue
             except Exception as e:
-                logger.error("replanning_failed", sid=sid, session_id=session_id, error=str(e))
+                logger.error("planner_error", sid=sid, session_id=session_id, error=str(e))
                 await emit_json(
                     "error_detected",
-                    ErrorDetectedPayload(error=f"Re-planning failed: {e}", failed_step=step).model_dump(),
+                    ErrorDetectedPayload(error=_cat(f"Planner error: {e}", "planner"), failed_step="planning").model_dump(),
                     sid,
                 )
                 return
 
-        # Advance to next step
-        step_index += 1
+            # Announce plan
+            await emit_json(
+                "plan_generated",
+                PlanGeneratedPayload(plan=plan_list).model_dump(),
+                sid,
+            )
 
-    # Workflow complete
-    await emit_json(
-        "workflow_complete",
-        WorkflowCompletePayload(status="success").model_dump(),
-        sid,
-    )
-    logger.info("workflow_complete", sid=sid, session_id=session_id)
+            # Execute steps sequentially with re-planning on error
+            history: List[Dict[str, Any]] = []
+            step_index = 0
+
+            while step_index < len(plan_list):
+                # Yield control periodically for cancellation responsiveness
+                await asyncio.sleep(0)
+
+                step = plan_list[step_index]
+
+                # Translate to bash command
+                try:
+                    start_exec = time.time()
+                    with EXECUTOR_LATENCY.time():
+                        command = api_client.run_executor(
+                            sub_task=step,
+                            session_id=session_id,
+                            strict_mode=True,
+                        )
+                    logger.info(
+                        "executor_command",
+                        sid=sid,
+                        session_id=session_id,
+                        step_index=step_index,
+                        step=step,
+                        command=command,
+                        latency=time.time() - start_exec,
+                    )
+                except Exception as e:
+                    logger.error("executor_error", sid=sid, session_id=session_id, step=step, error=str(e))
+                    await emit_json(
+                        "error_detected",
+                        ErrorDetectedPayload(error=_cat(f"Executor error: {e}", "executor"), failed_step=step).model_dump(),
+                        sid,
+                    )
+                    # Attempt re-planning
+                    await emit_json("re_planning", RePlanningPayload().model_dump(), sid)
+                    try:
+                        revised_goal = (
+                            f"Revise plan after failure.\nOriginal goal: {goal}\nFailed step: {step}\n"
+                            f"Error: {e}\nHistory: {json.dumps(history)[:4000]}"
+                        )
+                        with PLANNER_LATENCY.time():
+                            plan_list = api_client.run_planner(
+                                user_goal=revised_goal,
+                                session_id=session_id,
+                            )
+                        step_index = 0
+                        await emit_json("plan_generated", PlanGeneratedPayload(plan=plan_list).model_dump(), sid)
+                        continue
+                    except Exception as e2:
+                        logger.error("replanning_failed", sid=sid, session_id=session_id, error=str(e2))
+                        await emit_json(
+                            "error_detected",
+                            ErrorDetectedPayload(error=_cat(f"Re-planning failed: {e2}", "planner"), failed_step=step).model_dump(),
+                            sid,
+                        )
+                        return
+
+                # Notify UI of step executing + command
+                await emit_json(
+                    "step_executing",
+                    StepExecutingPayload(step=step, command=command).model_dump(),
+                    sid,
+                )
+
+                # Execute in sandbox
+                STEPS_EXECUTED.inc()
+                start_sbx = time.time()
+                with SANDBOX_LATENCY.time():
+                    result = sandbox.execute_command(command)
+
+                # Emit results
+                await emit_json(
+                    "step_result",
+                    StepResultPayload(
+                        stdout=_safe_str(result.get("stdout", "")),
+                        stderr=_safe_str(result.get("stderr", "")),
+                        exit_code=_safe_int(result.get("exit_code", -1)),
+                    ).model_dump(),
+                    sid,
+                )
+
+                # Record history
+                history.append(
+                    {
+                        "step": step,
+                        "command": command,
+                        "stdout": _safe_str(result.get("stdout", "")),
+                        "stderr": _safe_str(result.get("stderr", "")),
+                        "exit_code": _safe_int(result.get("exit_code", -1)),
+                        "sandbox_latency": time.time() - start_sbx,
+                    }
+                )
+
+                # Error -> re-plan
+                if _safe_int(result.get("exit_code", -1)) != 0:
+                    STEPS_FAILED.inc()
+                    logger.warning(
+                        "step_failed",
+                        sid=sid,
+                        session_id=session_id,
+                        step_index=step_index,
+                        step=step,
+                        exit_code=result.get("exit_code"),
+                    )
+                    await emit_json(
+                        "error_detected",
+                        ErrorDetectedPayload(
+                            error=_cat(_safe_str(result.get("stderr", ""))[:2000] or "unknown error", "sandbox"),
+                            failed_step=step,
+                        ).model_dump(),
+                        sid,
+                    )
+
+                    await emit_json("re_planning", RePlanningPayload().model_dump(), sid)
+                    try:
+                        revised_goal = (
+                            f"Re-plan after command failure.\nOriginal goal: {goal}\n"
+                            f"Failed step: {step}\nCommand: {command}\n"
+                            f"stderr: {_safe_str(result.get('stderr',''))[:2000]}\n"
+                            f"History: {json.dumps(history)[:4000]}"
+                        )
+                        with PLANNER_LATENCY.time():
+                            plan_list = api_client.run_planner(
+                                user_goal=revised_goal,
+                                session_id=session_id,
+                            )
+                        step_index = 0
+                        await emit_json("plan_generated", PlanGeneratedPayload(plan=plan_list).model_dump(), sid)
+                        continue
+                    except Exception as e:
+                        logger.error("replanning_failed", sid=sid, session_id=session_id, error=str(e))
+                        await emit_json(
+                            "error_detected",
+                            ErrorDetectedPayload(error=_cat(f"Re-planning failed: {e}", "planner"), failed_step=step).model_dump(),
+                            sid,
+                        )
+                        return
+
+                # Advance to next step
+                step_index += 1
+
+            # Workflow complete
+            await emit_json(
+                "workflow_complete",
+                WorkflowCompletePayload(status="success").model_dump(),
+                sid,
+            )
+            logger.info("workflow_complete", sid=sid, session_id=session_id)
+
+        except asyncio.CancelledError:
+            # Cooperative cancellation
+            logger.info("workflow_cancelled", sid=sid)
+            await emit_json(
+                "error_detected",
+                ErrorDetectedPayload(error=_cat("Workflow cancelled", "cancelled"), failed_step="cancel").model_dump(),
+                sid,
+            )
+            raise
+
+        finally:
+            # Cleanup registry
+            t = _RUNNING_TASKS.get(sid)
+            if t and t is asyncio.current_task():
+                _RUNNING_TASKS.pop(sid, None)
+
+    # Spawn workflow task and await completion (allows cancellation on disconnect/shutdown)
+    task = asyncio.create_task(_workflow(), name=f"workflow:{sid}")
+    _RUNNING_TASKS[sid] = task
+    try:
+        await task
+    except asyncio.CancelledError:
+        # Already handled inside _workflow
+        pass
 
 # Entrypoint helper for uvicorn
 def build_asgi():
