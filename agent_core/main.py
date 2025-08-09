@@ -269,7 +269,8 @@ async def execute_goal(sid, data):
             # Planning
             try:
                 with PLANNER_LATENCY.time():
-                    plan_list: List[str] = api_client.run_planner(
+                    plan_list: List[str] = await asyncio.to_thread(
+                        api_client.run_planner,
                         user_goal=goal,
                         session_id=session_id,
                     )
@@ -303,7 +304,8 @@ async def execute_goal(sid, data):
                 try:
                     start_exec = time.time()
                     with EXECUTOR_LATENCY.time():
-                        command = api_client.run_executor(
+                        command = await asyncio.to_thread(
+                            api_client.run_executor,
                             sub_task=step,
                             session_id=session_id,
                             strict_mode=True,
@@ -332,7 +334,8 @@ async def execute_goal(sid, data):
                             f"Error: {e}\nHistory: {json.dumps(history)[:4000]}"
                         )
                         with PLANNER_LATENCY.time():
-                            plan_list = api_client.run_planner(
+                            plan_list = await asyncio.to_thread(
+                                api_client.run_planner,
                                 user_goal=revised_goal,
                                 session_id=session_id,
                             )
@@ -413,7 +416,8 @@ async def execute_goal(sid, data):
                             f"History: {json.dumps(history)[:4000]}"
                         )
                         with PLANNER_LATENCY.time():
-                            plan_list = api_client.run_planner(
+                            plan_list = await asyncio.to_thread(
+                                api_client.run_planner,
                                 user_goal=revised_goal,
                                 session_id=session_id,
                             )

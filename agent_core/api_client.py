@@ -41,20 +41,34 @@ def _safety_tag(session_id: str) -> Dict[str, Any]:
 
 
 def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
+    """
+    Retry fn() on transient API errors only.
+    Do NOT retry invalid request errors (400-series schema/param issues).
+    """
     last = None
     for i in range(retries + 1):
         try:
             return fn()
         except APIError as e:
-            last = e
-            if i == retries:
-                raise
-            time.sleep(backoff * (2**i))
+            # Avoid retrying client-side invalid requests (commonly 400)
+            status = getattr(e, "status_code", None)
+            code = getattr(e, "code", None)
+            # Transient set: rate limit and server errors
+            transient = {429, 500, 502, 503, 504}
+            if status in transient:
+                last = e
+                if i == retries:
+                    raise
+                time.sleep(backoff * (2 ** i))
+                continue
+            # Non-transient -> re-raise immediately
+            raise
         except Exception as e:
+            # Unknown exception; treat as transient with backoff up to retries
             last = e
             if i == retries:
                 raise
-            time.sleep(backoff * (2**i))
+            time.sleep(backoff * (2 ** i))
     if last:
         raise last
 
@@ -121,7 +135,8 @@ def _build_planner_tools(enable_search: bool,
 
     if enable_search:
         tools.append({"type": "web_search_preview"})
-        allow_names.append("web_search_preview")
+        # Use object form for allowed tools entries to satisfy Responses API schema
+        allow_names.append({"type": "web_search_preview"})
 
     if enable_file_search:
         tools.append({
@@ -235,41 +250,42 @@ def _emit_bash_tools_cfg() -> List[Dict[str, Any]]:
 
 def _extract_function_call_command(resp) -> Optional[str]:
     """
-    Extracts the function call argument 'command' from a Responses API result.
+    Extract the 'command' argument from a strict function call to emit_bash.
+    Prefers top-level output items with type == 'function_call' and name == 'emit_bash'.
+    Falls back to scanning nested content entries if needed.
     """
-    for item in getattr(resp, "output", []) or []:
-        # Looking for function call content object
-        if getattr(item, "type", None) in ("function_call", "function_call_output"):
-            # Some SDKs structure differently; iterate defensively
-            name = getattr(item, "name", None)
-            if name == "emit_bash":
-                # Some SDKs: arguments as JSON string or dict-like field
-                args = getattr(item, "arguments", None) or getattr(item, "args", None)
-                if isinstance(args, str):
-                    try:
-                        obj = json.loads(args)
-                        return str(obj.get("command", "")).strip()
-                    except Exception:
-                        continue
-                if isinstance(args, dict):
-                    return str(args.get("command", "")).strip()
-        # Some SDKs store function calls in content list
+    output = getattr(resp, "output", []) or []
+
+    # Preferred: top-level function_call items
+    for item in output:
+        if getattr(item, "type", None) == "function_call" and getattr(item, "name", None) == "emit_bash":
+            args = getattr(item, "arguments", None) or getattr(item, "args", None)
+            if isinstance(args, str):
+                try:
+                    obj = json.loads(args)
+                    return str(obj.get("command", "")).strip()
+                except Exception:
+                    pass
+            elif isinstance(args, dict):
+                return str(args.get("command", "")).strip()
+
+    # Fallback: nested content entries that may contain a function call envelope
+    for item in output:
         content = getattr(item, "content", None)
         if not content:
             continue
         for c in content:
-            # c may represent a function call envelope in some SDK variants
-            name = getattr(c, "name", None)
-            if name == "emit_bash":
-                args = getattr(c, "arguments", None)
+            if getattr(c, "name", None) == "emit_bash":
+                args = getattr(c, "arguments", None) or getattr(c, "args", None)
                 if isinstance(args, str):
                     try:
                         obj = json.loads(args)
                         return str(obj.get("command", "")).strip()
                     except Exception:
-                        continue
-                if isinstance(args, dict):
+                        pass
+                elif isinstance(args, dict):
                     return str(args.get("command", "")).strip()
+
     return None
 
 

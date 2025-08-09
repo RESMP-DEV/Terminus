@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+logs/demo1.txt
+.gitignore
+.roo/mcp.json
+logs/backend.pid
+.gitignore
+logs/demo2.txt

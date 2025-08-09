@@ -43,6 +43,32 @@ async def main() -> int:
         except Exception as e:
             print(f"(error printing payload) {e}")
 
+    async def on_status(payload):
+        await pprint_event("status", payload)
+
+    async def on_plan_generated(payload):
+        await pprint_event("plan_generated", payload)
+
+    async def on_step_executing(payload):
+        await pprint_event("step_executing", payload)
+
+    async def on_step_result(payload):
+        await pprint_event("step_result", payload)
+
+    async def on_error_detected(payload):
+        await pprint_event("error_detected", payload)
+
+    async def on_replanning(payload):
+        await pprint_event("re_planning", payload)
+
+    async def on_workflow_complete(payload):
+        await pprint_event("workflow_complete", payload)
+        # Auto-disconnect after completion
+        try:
+            await sio.disconnect()
+        except Exception:
+            pass
+            
     @sio.event
     async def connect():
         print(f"Connected to {BACKEND_URL}")
@@ -51,41 +77,16 @@ async def main() -> int:
     async def disconnect():
         print("Disconnected")
 
-    @sio.on("status")
-    async def on_status(payload):
-        await pprint_event("status", payload)
-
-    @sio.on("plan_generated")
-    async def on_plan_generated(payload):
-        await pprint_event("plan_generated", payload)
-
-    @sio.on("step_executing")
-    async def on_step_executing(payload):
-        await pprint_event("step_executing", payload)
-
-    @sio.on("step_result")
-    async def on_step_result(payload):
-        await pprint_event("step_result", payload)
-
-    @sio.on("error_detected")
-    async def on_error_detected(payload):
-        await pprint_event("error_detected", payload)
-
-    @sio.on("re_planning")
-    async def on_replanning(payload):
-        await pprint_event("re_planning", payload)
-
-    @sio.on("workflow_complete")
-    async def on_workflow_complete(payload):
-        await pprint_event("workflow_complete", payload)
-        # Auto-disconnect after completion
-        try:
-            await sio.disconnect()
-        except Exception:
-            pass
+    sio.on("status", on_status)
+    sio.on("plan_generated", on_plan_generated)
+    sio.on("step_executing", on_step_executing)
+    sio.on("step_result", on_step_result)
+    sio.on("error_detected", on_error_detected)
+    sio.on("re_planning", on_replanning)
+    sio.on("workflow_complete", on_workflow_complete)
 
     try:
-        await sio.connect(BACKEND_URL, wait_timeout=3)
+        await sio.connect(BACKEND_URL, wait_timeout=10)
         # Emit the goal per contract
         await sio.emit("execute_goal", {"payload": {"goal": GOAL}})
         # Keep loop alive until disconnect
