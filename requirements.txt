@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-socketio[asgi]
+pydantic
+openai
+python-dotenv
+structlog
+prometheus-client

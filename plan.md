@@ -1,84 +1,199 @@
-# Detailed Plan: State & Feedback Loop Developer
+# Engine Plan: State & Feedback Loop (updated with OpenAI Responses API and Tools)
 
-This plan outlines the detailed steps for building the Engine, which is responsible for managing the workflow, executing commands, and communicating state changes.
+This plan updates our Engine design to use the OpenAI Responses API, optional tool integrations, and socket compatibility, while preserving the original contract. All implementation references point to files we will create or have created:
+- [plan.md](plan.md)
+- [sandbox/setup_sandbox.sh](sandbox/setup_sandbox.sh)
+- [agent_core/sandbox.py](agent_core/sandbox.py)
+- [agent_core/api_client.py](agent_core/api_client.py)
+- [agent_core/orchestrator.py](agent_core/orchestrator.py)
+- [agent_core/executor.py](agent_core/executor.py)
+- [agent_core/main.py](agent_core/main.py)
+- [ui/src/App.jsx](ui/src/App.jsx)
+- [ui/src/components/GoalInput.jsx](ui/src/components/GoalInput.jsx)
+- [ui/src/components/Dashboard.jsx](ui/src/components/Dashboard.jsx)
 
-## Phase 1: Sandbox and Execution Environment
+Overview
+- Backend: FastAPI with Socket.IO transport for UI compatibility, and a WebSocket endpoint for tests.
+- Model calls: OpenAI Responses API with reasoning and verbosity control, safety_identifier tagging, and optional tools.
+- Execution: sandboxed subprocess under low-privilege user.
+- Messaging: Strict adherence to the agreed event schema.
 
-### 1. Create `setup_sandbox.sh`
-*   **Objective:** Create a script to provision the isolated sandbox environment.
-*   **Details:**
-    *   Create a new system user `sandboxuser`.
-    *   Set up a home directory for `sandboxuser`.
-    *   Install essential packages: `git`, `python3`, `pip`, `curl`, `wget`, `build-essential`.
-    *   Configure permissions to restrict `sandboxuser`'s access to the rest of the system.
+1. Transport layer decision
+- UI uses socket.io-client; raw WebSocket and Socket.IO protocols are not wire-compatible.
+- Decision: run Socket.IO alongside FastAPI using python-socketio ASGI middleware for bidirectional events.
+- We will still expose an optional raw FastAPI WebSocket endpoint for diagnostics.
+- Dependencies to add: fastapi, uvicorn, python-socketio[asgi], pydantic, python-dotenv, structlog, prometheus-client, openai.
 
-### 2. Develop `agent_core/sandbox.py`
-*   **Objective:** Create a secure command execution module.
-*   **Details:**
-    *   Implement the `execute_command(command: str) -> dict` function.
-    *   Use `subprocess.run()` to execute commands.
-    *   Execute all commands as `sandboxuser` using `sudo -u sandboxuser`.
-    *   Capture and return `stdout`, `stderr`, and `exit_code`.
-    *   Implement robust error handling and sanitization to prevent command injection.
+2. OpenAI API usage (Responses API)
+- Use Responses API for both planning and command translation.
+- Common parameters:
+  - reasoning.effort: planner = medium, executor = minimal.
+  - text.verbosity: low for both (keep messages concise).
+  - metadata (safety tag): include a unique safety_identifier per session.
+  - tool_choice.allowed_tools: constrain tools per call as needed.
+- Planner (gpt-5):
+  - Primary: pure text generation of a JSON with key plan.
+  - Optional tools: web_search_preview, file_search, remote MCP for knowledge retrieval (opt-in via env).
+- Executor (gpt-5-nano):
+  - Primary: strict single-line Bash output.
+  - Optional hardened mode: require function calling with a single "emit_bash" function to enforce structure.
 
-## Phase 2: Core Runtime and API Integration
+Python example (planner)
+```python
+from openai import OpenAI
+client = OpenAI()
+resp = client.responses.create(
+    model="gpt-5",
+    input=[{"role":"system","content":"You are Planner. Return JSON {plan:[...]}. Use short, imperative steps."},
+           {"role":"user","content": user_goal}],
+    reasoning={"effort":"medium"},
+    text={"verbosity":"low"},
+    tools=([{"type":"web_search_preview"}] if enable_search else []),
+    metadata={"safety_identifier": session_id},
+    tool_choice={"type":"allowed_tools","mode":"auto","tools":["web_search_preview"]} if enable_search else None,
+)
+plan_json = resp.output_text
+```
 
-### 3. Develop `agent_core/api_client.py`
-*   **Objective:** Centralize all interactions with the GPT-5 API.
-*   **Details:**
-    *   Implement functions to call the `gpt-5-thinking` and `gpt-5-thinking-nano` models.
-    *   Manage API keys securely, loading them from a `.env` file.
-    *   Include the `safety_identifier` in every API call.
-    *   Implement error handling for API requests.
+Python example (executor with function calling)
+```python
+from openai import OpenAI
+client = OpenAI()
+tools=[{
+    "type":"function",
+    "name":"emit_bash",
+    "description":"Return a single-line executable bash command for the sub-task.",
+    "parameters":{
+        "type":"object",
+        "properties":{"command":{"type":"string"}},
+        "required":["command"],
+        "additionalProperties":False
+    },
+    "strict":True
+}]
+resp = client.responses.create(
+    model="gpt-5-nano",
+    input=[{"role":"system","content":"Return exactly one valid single-line bash command and nothing else."},
+           {"role":"user","content": sub_task}],
+    reasoning={"effort":"minimal"},
+    text={"verbosity":"low"},
+    tools=tools,
+    tool_choice={"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"emit_bash"}]},
+    metadata={"safety_identifier": session_id},
+)
+# Extract the function call arguments (command) from resp.output
+```
 
-### 4. Implement the Orchestrator (`agent_core/orchestrator.py`)
-*   **Objective:** Build the module for AI-driven planning.
-*   **Details:**
-    *   Implement `create_initial_plan(user_goal: str) -> list[str]`.
-    *   Implement `create_revised_plan(history: list, error: str) -> list[str]`.
-    *   Integrate with `api_client.py` to make calls to the GPT-5 API.
+3. API client design
+- Single module [agent_core/api_client.py](agent_core/api_client.py) centralizes:
+  - Client creation and env loading.
+  - Session scoping with safety_identifier.
+  - Call helpers: run_planner(user_goal, enable_search, vector_store_ids, mcp_servers), run_executor(sub_task, strict_mode).
+  - Optional: streaming variant for planner to surface incremental status.
+- Fail-safe semantics:
+  - Timeouts and retries (exponential backoff).
+  - Graceful degradation when tools are unavailable (fall back to text-only).
+  - Explicit error typing and propagation to runtime loop.
 
-### 5. Implement the Executor (`agent_core/executor.py`)
-*   **Objective:** Build the module for translating tasks into commands.
-*   **Details:**
-    *   Implement `translate_task_to_bash(sub_task: str) -> str`.
-    *   Integrate with `api_client.py` to make calls to the `gpt-5-thinking-nano` model.
+4. Prompts (concise drafts)
+- Planner system prompt: expert DevOps, return {"plan":[...]} in JSON; imperative, minimal steps; no prose.
+- Executor system prompt: output exactly one single-line bash command; no comments; POSIX where possible.
 
-## Phase 3: Main Application and WebSocket Communication
+5. Message schemas and state machine
+- Define Pydantic models in [agent_core/main.py](agent_core/main.py) for all events to enforce the contract.
+- Events emitted to UI (Socket.IO event names mirror type):
+  - plan_generated, step_executing, step_result, error_detected, re_planning, workflow_complete.
+- Incoming:
+  - execute_goal.
+- All payloads must match the agreed shapes exactly (see API Contract section).
 
-### 6. Implement `agent_core/main.py`
-*   **Objective:** Create the main application logic and WebSocket endpoint.
-*   **Details:**
-    *   Initialize a FastAPI application.
-    *   Create a WebSocket endpoint at `/ws`.
-    *   Implement the main workflow loop to handle the `execute_goal` message.
-    *   Integrate with the Orchestrator, Executor, and Sandbox Manager.
-    *   Manage the state of the workflow and send updates to the UI.
+6. Runtime loop (high level)
+- On execute_goal:
+  - Generate session_id; send PLANNING status.
+  - Call planner; emit plan_generated with checklist.
+- For each step:
+  - Emit step_executing with natural text.
+  - Translate to bash via executor; include command in the same event update.
+  - Run command via [agent_core/sandbox.py](agent_core/sandbox.py).
+  - Emit step_result with stdout, stderr, exit_code.
+  - On nonzero exit:
+    - Emit error_detected; call revised planner with history and error; emit re_planning; continue.
+- On success: workflow_complete status success.
 
-### 7. Adhere to API Contract
-*   **Objective:** Ensure all WebSocket messages are correctly formatted.
-*   **Details:**
-    *   Implement functions to create and send all message types defined in the API contract.
-    *   Validate the structure of incoming and outgoing messages.
+7. Sandbox posture and hardening backlog
+- Current: dedicated Unix user via [sandbox/setup_sandbox.sh](sandbox/setup_sandbox.sh) with sudo -u.
+- Near-term hardening (backlog):
+  - chroot/containers (e.g., bubblewrap or firejail).
+  - seccomp profile to restrict syscalls.
+  - cgroup limits for CPU/mem/disk.
+  - network egress policy toggles per step.
+  - command allow/deny list and literal-arg execution (avoid shell when possible).
+- In code, we will prefer execve-style argv paths for known tools; shell only when necessary.
 
-## Workflow Visualization
+8. Configuration and secrets
+- .env keys (template):
+  - OPENAI_API_KEY
+  - SAFETY_IDENTIFIER_PREFIX (optional)
+  - ENABLE_PLANNER_WEB_SEARCH=true|false
+  - ENABLE_PLANNER_FILE_SEARCH=true|false
+  - ENABLE_PLANNER_MCP=true|false
+  - EXECUTOR_STRICT_FUNCTION=true|false
+  - SOCKET_TRANSPORT=socketio
+  - SANDBOX_USER=sandboxuser
 
+9. Observability
+- Logging: structlog JSON with session_id and step index correlation.
+- Metrics: prometheus-client counters (steps_executed_total, steps_failed_total) and histograms (latency).
+- Tracing: optional OpenTelemetry later.
+
+10. Demo scenarios runbooks
+- Scenario 1: CUDA Toolkit diagnosis/install
+  - Expected steps: detect GPU (lspci, nvidia-smi), choose CUDA version, download installer, run with sudo.
+  - Toggle network egress on; ensure sandbox has wget and sudo privileges only where intended.
+- Scenario 2: Clone repo and run tests with missing pytest
+  - Steps: git clone, pip install -r requirements.txt, run pytest, handle failure, re-plan to pip install pytest, rerun.
+
+API Contract (unchanged shapes, reiterated)
+- Client → Server:
+  - {"type":"execute_goal","payload":{"goal": "..."}}
+- Server → Client:
+  - {"type":"plan_generated","payload":{"plan":[...]}}
+  - {"type":"step_executing","payload":{"step":"...","command":"..."}}
+  - {"type":"step_result","payload":{"stdout":"...","stderr":"...","exit_code":0}}
+  - {"type":"error_detected","payload":{"error":"...","failed_step":"..."}}
+  - {"type":"re_planning","payload":{}}
+  - {"type":"workflow_complete","payload":{"status":"success"}}
+
+Mermaid: end-to-end flow with tools
 ```mermaid
 graph TD
-    A[UI: User enters goal] -->|{"type": "execute_goal"}| B(main.py: WebSocket Server);
-    B --> C{Orchestrator: create_initial_plan};
-    C -->|plan| B;
-    B -->|{"type": "plan_generated"}| A;
-    B --> D{Executor: translate_task_to_bash};
-    D -->|bash command| B;
-    B -->|{"type": "step_executing"}| A;
-    B --> E{Sandbox: execute_command};
-    E -->|{stdout, stderr, exit_code}| B;
-    B -->|{"type": "step_result"}| A;
-    subgraph Error Handling
-        E -->|exit_code != 0| F{Orchestrator: create_revised_plan};
-        F -->|new plan| B;
-        B -->|{"type": "re_planning"}| A;
-    end
-    B -->|Loop until complete| D;
-    B -->|{"type": "workflow_complete"}| A;
+  UI[UI sends execute_goal] -->|execute_goal| RT[Runtime loop];
+  RT -->|planner call| GPT[OpenAI gpt-5];
+  GPT -->|optional tools: web_search/file_search/MCP| TOOLS[Tools];
+  GPT -->|plan JSON| RT;
+  RT -->|plan_generated| UI;
+  RT -->|executor call| NANO[OpenAI gpt-5-nano];
+  NANO -->|emit_bash function| RT;
+  RT -->|sandbox exec| SBX[Sandbox user];
+  SBX -->|stdout/stderr/exit| RT;
+  RT -->|step_result| UI;
+  RT -->|on error -> re_planning| GPT;
+  RT -->|workflow_complete| UI;
+```
+
+Milestones
+- M1: Socket layer online, schemas compiled, stub planner/executor in place.
+- M2: Full loop with minimal tools, demos run locally.
+- M3: Optional tools (search/file/MCP) toggles validated, metrics dashboards.
+
+Risks and mitigations
+- Socket protocol mismatch: adopt python-socketio (decision above).
+- Over-eager tool invocation: use allowed_tools to constrain per-call; disable tools by default.
+- Command injection: prefer argv exec; sanitize; limit shell; run under restricted user; add allowlist.
+- Cost/latency: executor uses gpt-5-nano; planner verbosity low; streaming disabled initially.
+
+Next implementation steps
+- Create [agent_core/api_client.py](agent_core/api_client.py) with the helper methods and safety tag propagation.
+- Scaffold [agent_core/main.py](agent_core/main.py) socket server with event schema validation and loop.
+- Add configuration loader and logging/metrics.
+- Expand [agent_core/sandbox.py](agent_core/sandbox.py) to support argv-first execution path.
