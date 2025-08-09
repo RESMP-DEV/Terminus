@@ -30,7 +30,7 @@ SAFETY_IDENTIFIER_PREFIX = os.getenv("SAFETY_IDENTIFIER_PREFIX", "terminus-")
 
 # Models
 PLANNER_MODEL = "gpt-5"
-EXECUTOR_MODEL = "gpt-5-nano"
+EXECUTOR_MODEL = "gpt-oss-20b"
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)

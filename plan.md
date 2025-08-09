@@ -1,6 +1,7 @@
-# Engine Plan: State & Feedback Loop (updated with OpenAI Responses API and Tools)
+# Engine Plan: State & Feedback Loop (updated with gpt-oss-20b executor)
 
-This plan updates our Engine design to use the OpenAI Responses API, optional tool integrations, and socket compatibility, while preserving the original contract. All implementation references point to files we will create or have created:
+This plan updates our Engine design to use the OpenAI Responses API with a gpt-oss-20b finetuned model for command generation, while preserving the original contract and using GPT-5 for planning.
+
 - [plan.md](plan.md)
 - [sandbox/setup_sandbox.sh](sandbox/setup_sandbox.sh)
 - [agent_core/sandbox.py](agent_core/sandbox.py)
@@ -13,7 +14,7 @@ This plan updates our Engine design to use the OpenAI Responses API, optional to
 - [ui/src/components/Dashboard.jsx](ui/src/components/Dashboard.jsx)
 
 Overview
-- Backend: FastAPI with Socket.IO transport for UI compatibility, and a WebSocket endpoint for tests.
+- Backend: FastAPI with Socket.IO transport for UI compatibility.
 - Model calls: OpenAI Responses API with reasoning and verbosity control, safety_identifier tagging, and optional tools.
 - Execution: sandboxed subprocess under low-privilege user.
 - Messaging: Strict adherence to the agreed event schema.
@@ -21,7 +22,6 @@ Overview
 1. Transport layer decision
 - UI uses socket.io-client; raw WebSocket and Socket.IO protocols are not wire-compatible.
 - Decision: run Socket.IO alongside FastAPI using python-socketio ASGI middleware for bidirectional events.
-- We will still expose an optional raw FastAPI WebSocket endpoint for diagnostics.
 - Dependencies to add: fastapi, uvicorn, python-socketio[asgi], pydantic, python-dotenv, structlog, prometheus-client, openai.
 
 2. OpenAI API usage (Responses API)
@@ -34,9 +34,9 @@ Overview
 - Planner (gpt-5):
   - Primary: pure text generation of a JSON with key plan.
   - Optional tools: web_search_preview, file_search, remote MCP for knowledge retrieval (opt-in via env).
-- Executor (gpt-5-nano):
+- Executor (gpt-oss-20b):
   - Primary: strict single-line Bash output.
-  - Optional hardened mode: require function calling with a single "emit_bash" function to enforce structure.
+  - Hardened mode: require function calling with a single "emit_bash" function to enforce structure.
 
 Python example (planner)
 ```python
@@ -50,7 +50,7 @@ resp = client.responses.create(
     text={"verbosity":"low"},
     tools=([{"type":"web_search_preview"}] if enable_search else []),
     metadata={"safety_identifier": session_id},
-    tool_choice={"type":"allowed_tools","mode":"auto","tools":["web_search_preview"]} if enable_search else None,
+    tool_choice={"type":"allowed_tools","mode":"auto","tools":[{"type":"web_search_preview"}]} if enable_search else None,
 )
 plan_json = resp.output_text
 ```
@@ -72,7 +72,7 @@ tools=[{
     "strict":True
 }]
 resp = client.responses.create(
-    model="gpt-5-nano",
+    model="gpt-oss-20b",
     input=[{"role":"system","content":"Return exactly one valid single-line bash command and nothing else."},
            {"role":"user","content": sub_task}],
     reasoning={"effort":"minimal"},
@@ -172,8 +172,8 @@ graph TD
   GPT -->|optional tools: web_search/file_search/MCP| TOOLS[Tools];
   GPT -->|plan JSON| RT;
   RT -->|plan_generated| UI;
-  RT -->|executor call| NANO[OpenAI gpt-5-nano];
-  NANO -->|emit_bash function| RT;
+  RT -->|executor call| OSS[OpenAI gpt-oss-20b];
+  OSS -->|emit_bash function| RT;
   RT -->|sandbox exec| SBX[Sandbox user];
   SBX -->|stdout/stderr/exit| RT;
   RT -->|step_result| UI;
@@ -190,7 +190,7 @@ Risks and mitigations
 - Socket protocol mismatch: adopt python-socketio (decision above).
 - Over-eager tool invocation: use allowed_tools to constrain per-call; disable tools by default.
 - Command injection: prefer argv exec; sanitize; limit shell; run under restricted user; add allowlist.
-- Cost/latency: executor uses gpt-5-nano; planner verbosity low; streaming disabled initially.
+- Cost/latency: executor uses gpt-oss-20b; planner verbosity low; streaming disabled initially.
 
 Next implementation steps
 - Create [agent_core/api_client.py](agent_core/api_client.py) with the helper methods and safety tag propagation.
