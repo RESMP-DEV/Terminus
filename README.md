@@ -11,11 +11,12 @@ Quick links
 - Message types: [agent_core/types.py](agent_core/types.py)
 - Orchestrator: [agent_core/orchestrator.py](agent_core/orchestrator.py)
 - Executor: [agent_core/executor.py](agent_core/executor.py)
+- Optional Agents SDK runtime: [agent_core_sdk/](agent_core_sdk/)
 - UI scaffolding (to be connected): ui/
 
 Tech stack
 - Backend: FastAPI + Socket.IO (python-socketio ASGI)
-- Model API: OpenAI Responses API (gpt‑5 for planning, gpt‑5‑nano for command translation)
+- Model API: OpenAI Responses API (gpt‑5 for planning, gpt‑5‑nano for command translation); optional OpenAI Agents SDK runtime
 - Command execution: Python subprocess under restricted sandbox user
 - Config: .env (dotenv)
 - Validation: Pydantic (payload schemas)
@@ -78,6 +79,14 @@ Option A: Factory entrypoint (recommended)
 This serves:
 - Socket.IO over HTTP at http://localhost:8000 (Socket.IO endpoint)
 - Raw WebSocket diagnostics at ws://localhost:8000/ws (echo/status only)
+
+Option B: One-liner (loads .env automatically)
+
+The backend calls dotenv's load_dotenv on startup, so variables in `.env` are picked up automatically. You can start the server with a single command (example path shown for this repo location):
+
+```
+cd /Users/tingyuzhang/Desktop/hackathon/Terminus && . .venv/bin/activate 2>/dev/null || true && python -m uvicorn agent_core.main:build_asgi --factory --host 127.0.0.1 --port 8000 --reload
+```
 
 Socket.IO contract
 
