@@ -44,7 +44,7 @@ export default function SystemMetricsPanel({ metrics }: SystemMetricsProps) {
       className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm"
     >
       <h3 className="text-lg font-semibold text-gray-900 mb-4">System Metrics</h3>
-      
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {metricItems.map((item, index) => (
           <motion.div

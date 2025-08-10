@@ -93,7 +93,7 @@ Outgoing (Server → Client)
 - step_result
   - {"type":"step_result","payload":{"stdout":"...","stderr":"...","exit_code":0}}
 - error_detected
-  - {"type":"error_detected","payload":{"error":"...","failed_step":"..."}} 
+  - {"type":"error_detected","payload":{"error":"...","failed_step":"..."}}
 - re_planning
   - {"type":"re_planning","payload":{}}
 - workflow_complete

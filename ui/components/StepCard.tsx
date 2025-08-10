@@ -2,12 +2,12 @@
 
 import { motion } from "framer-motion";
 import { OrchestrationStep } from "@/lib/types";
-import { 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  Play, 
-  ChevronDown, 
+import {
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Play,
+  ChevronDown,
   ChevronRight,
   RotateCcw,
   Activity
@@ -23,12 +23,12 @@ interface StepCardProps {
   onRetry?: (stepId: OrchestrationStep["id"]) => void;
 }
 
-export default function StepCard({ 
-  step, 
-  index, 
-  isVisible, 
-  onAdvance, 
-  onRetry 
+export default function StepCard({
+  step,
+  index,
+  isVisible,
+  onAdvance,
+  onRetry
 }: StepCardProps) {
   const [showDetails, setShowDetails] = useState(false);
 
@@ -114,12 +114,12 @@ export default function StepCard({
               <ul className="space-y-1">
                 {step.passCriteria.map((criteria, idx) => (
                   <li key={idx} className="flex items-center space-x-2 text-sm">
-                    <CheckCircle2 
+                    <CheckCircle2
                       className={clsx("w-4 h-4", {
                         "text-green-500": step.status === "completed",
                         "text-blue-500": step.status === "active" || step.status === "executing",
                         "text-gray-300": step.status === "pending" || step.status === "blocked"
-                      })} 
+                      })}
                     />
                     <span className="text-gray-600">{criteria}</span>
                   </li>
@@ -164,7 +164,7 @@ export default function StepCard({
               <span>Retry</span>
             </button>
           )}
-          
+
           {canAdvance && onAdvance && (
             <button
               onClick={() => onAdvance(step.id)}
@@ -196,7 +196,7 @@ export default function StepCard({
               </div>
             </div>
           )}
-          
+
           {step.artifacts && step.artifacts.length > 0 && (
             <div>
               <h5 className="text-sm font-medium text-gray-700 mb-2">Artifacts:</h5>

@@ -4,7 +4,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-from openai import OpenAI, APIError
+from openai import APIError, OpenAI
 
 load_dotenv()
 
@@ -16,7 +16,10 @@ if not OPENAI_API_KEY:
 
 # Fake mode allows exercising the end-to-end loop without hitting OpenAI.
 # Enable with TERMINUS_FAKE=true, or implicitly if no OPENAI_API_KEY is present.
-TERMINUS_FAKE = os.getenv("TERMINUS_FAKE", "false").strip().lower() in ("1", "true", "yes", "on") or not OPENAI_API_KEY
+TERMINUS_FAKE = (
+    os.getenv("TERMINUS_FAKE", "false").strip().lower() in ("1", "true", "yes", "on")
+    or not OPENAI_API_KEY
+)
 
 ENABLE_PLANNER_WEB_SEARCH = os.getenv("ENABLE_PLANNER_WEB_SEARCH", "false").lower() == "true"
 ENABLE_PLANNER_FILE_SEARCH = os.getenv("ENABLE_PLANNER_FILE_SEARCH", "false").lower() == "true"
@@ -52,14 +55,13 @@ def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
         except APIError as e:
             # Avoid retrying client-side invalid requests (commonly 400)
             status = getattr(e, "status_code", None)
-            code = getattr(e, "code", None)
             # Transient set: rate limit and server errors
             transient = {429, 500, 502, 503, 504}
             if status in transient:
                 last = e
                 if i == retries:
                     raise
-                time.sleep(backoff * (2 ** i))
+                time.sleep(backoff * (2**i))
                 continue
             # Non-transient -> re-raise immediately
             raise
@@ -68,7 +70,7 @@ def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
             last = e
             if i == retries:
                 raise
-            time.sleep(backoff * (2 ** i))
+            time.sleep(backoff * (2**i))
     if last:
         raise last
 
@@ -118,17 +120,19 @@ def _parse_plan_text_to_list(plan_text: str) -> List[str]:
         # Remove common bullet/numbering prefixes
         for prefix in ("- ", "* ", "• ", "1. ", "2. ", "3. "):
             if raw.startswith(prefix):
-                raw = raw[len(prefix):]
+                raw = raw[len(prefix) :]
         if raw:
             steps.append(raw)
     return steps
 
 
-def _build_planner_tools(enable_search: bool,
-                         enable_file_search: bool,
-                         enable_mcp: bool,
-                         vector_store_ids: Optional[List[str]] = None,
-                         mcp_servers: Optional[List[Dict[str, Any]]] = None) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+def _build_planner_tools(
+    enable_search: bool,
+    enable_file_search: bool,
+    enable_mcp: bool,
+    vector_store_ids: Optional[List[str]] = None,
+    mcp_servers: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     tools: List[Dict[str, Any]] = []
     allowed: Optional[Dict[str, Any]] = None
     allow_names: List[Any] = []
@@ -139,25 +143,21 @@ def _build_planner_tools(enable_search: bool,
         allow_names.append({"type": "web_search_preview"})
 
     if enable_file_search:
-        tools.append({
-            "type": "file_search",
-            "vector_store_ids": vector_store_ids or []
-        })
+        tools.append({"type": "file_search", "vector_store_ids": vector_store_ids or []})
         allow_names.append({"type": "file_search"})  # Allowed tools format can be names or objects
 
     if enable_mcp and mcp_servers:
         for srv in mcp_servers:
             # Expecting dicts like: {"server_label": "...", "server_url": "...", "require_approval": "never"}
-            tools.append({
-                "type": "mcp",
-                "server_label": srv.get("server_label"),
-                "server_url": srv.get("server_url"),
-                "require_approval": srv.get("require_approval", "never"),
-            })
-            allow_names.append({
-                "type": "mcp",
-                "server_label": srv.get("server_label")
-            })
+            tools.append(
+                {
+                    "type": "mcp",
+                    "server_label": srv.get("server_label"),
+                    "server_url": srv.get("server_url"),
+                    "require_approval": srv.get("require_approval", "never"),
+                }
+            )
+            allow_names.append({"type": "mcp", "server_label": srv.get("server_label")})
 
     if allow_names:
         allowed = {"type": "allowed_tools", "mode": "auto", "tools": allow_names}
@@ -229,23 +229,25 @@ def _emit_bash_tools_cfg() -> List[Dict[str, Any]]:
     """
     Returns a strict function-calling tool that forces the model to return a single-line bash command.
     """
-    return [{
-        "type": "function",
-        "name": "emit_bash",
-        "description": "Return a single-line executable bash command for the given sub-task. No comments.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Single-line bash command. Must not contain newlines."
-                }
+    return [
+        {
+            "type": "function",
+            "name": "emit_bash",
+            "description": "Return a single-line executable bash command for the given sub-task. No comments.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Single-line bash command. Must not contain newlines.",
+                    }
+                },
+                "required": ["command"],
+                "additionalProperties": False,
             },
-            "required": ["command"],
-            "additionalProperties": False
-        },
-        "strict": True
-    }]
+            "strict": True,
+        }
+    ]
 
 
 def _extract_function_call_command(resp) -> Optional[str]:
@@ -258,7 +260,10 @@ def _extract_function_call_command(resp) -> Optional[str]:
 
     # Preferred: top-level function_call items
     for item in output:
-        if getattr(item, "type", None) == "function_call" and getattr(item, "name", None) == "emit_bash":
+        if (
+            getattr(item, "type", None) == "function_call"
+            and getattr(item, "name", None) == "emit_bash"
+        ):
             args = getattr(item, "arguments", None) or getattr(item, "args", None)
             if isinstance(args, str):
                 try:

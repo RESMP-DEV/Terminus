@@ -21,8 +21,11 @@ from typing import Any, Dict
 
 try:
     import socketio  # python-socketio
-except Exception as e:
-    print("ERROR: python-socketio is not installed. pip install -r requirements.txt", file=sys.stderr)
+except Exception:
+    print(
+        "ERROR: python-socketio is not installed. pip install -r requirements.txt",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -68,7 +71,7 @@ async def main() -> int:
             await sio.disconnect()
         except Exception:
             pass
-            
+
     @sio.event
     async def connect():
         print(f"Connected to {BACKEND_URL}")

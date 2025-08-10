@@ -104,7 +104,7 @@ The UI integrates seamlessly with the Terminus backend through Socket.IO events:
 
 Inspired by modern SaaS dashboards with:
 - **Progressive Disclosure**: Information revealed as needed
-- **Visual Hierarchy**: Clear status and priority indicators  
+- **Visual Hierarchy**: Clear status and priority indicators
 - **Smooth Interactions**: Framer Motion animations
 - **Accessibility First**: ARIA labels, keyboard navigation, proper contrast
 - **Mobile Responsive**: Works seamlessly on all devices

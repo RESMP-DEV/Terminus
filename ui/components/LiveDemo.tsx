@@ -22,32 +22,32 @@ export default function LiveDemo() {
   useEffect(() => {
     // Try to connect to backend
     socketClient.connect(serverUrl);
-    
+
     const unsubscribes = [
       socketClient.on("plan_generated", (payload) => {
         setCurrentPlan(payload.plan);
         setIsExecuting(true);
       }),
-      
+
       socketClient.on("step_executing", (payload) => {
         setCurrentStep(payload.step);
         setError("");
       }),
-      
+
       socketClient.on("step_result", (payload) => {
         setLastResult(`Exit Code: ${payload.exit_code}\nStdout: ${payload.stdout}\nStderr: ${payload.stderr}`);
       }),
-      
+
       socketClient.on("error_detected", (payload) => {
         setError(`Error in ${payload.failed_step}: ${payload.error}`);
       }),
-      
+
       socketClient.on("workflow_complete", (payload) => {
         setIsExecuting(false);
         setCurrentStep("Complete");
         setLastResult(`Workflow completed with status: ${payload.status}`);
       }),
-      
+
       socketClient.on("re_planning", () => {
         setCurrentStep("Re-planning...");
         setCurrentPlan([]);
@@ -75,7 +75,7 @@ export default function LiveDemo() {
       setLastResult("");
       setError("");
       setIsExecuting(true);
-      
+
       socketClient.executeGoal(goal.trim());
     }
   };

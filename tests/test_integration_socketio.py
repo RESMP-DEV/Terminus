@@ -1,6 +1,5 @@
-import os
 import asyncio
-import time
+import os
 
 import pytest
 
@@ -83,7 +82,11 @@ async def test_rate_limit_second_request_rejected():
                 p = payload.get("payload", {})
                 err = p.get("error", "")
                 failed = p.get("failed_step", "")
-                if isinstance(err, str) and err.startswith("[rate_limit]") and failed == "rate_limit":
+                if (
+                    isinstance(err, str)
+                    and err.startswith("[rate_limit]")
+                    and failed == "rate_limit"
+                ):
                     got_rate_limit.set()
         except Exception:
             pass

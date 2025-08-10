@@ -1,6 +1,3 @@
-import types
-import os
-
 import pytest
 
 # System under test
@@ -49,6 +46,7 @@ def test_planner_parses_json_plan(monkeypatch):
 def test_planner_parses_plain_text_bullets(monkeypatch):
     # Arrange
     plain = "- step A\n- step B\n- step C\n"
+
     def create_impl(**kwargs):
         return DummyResponse(output_text=plain)
 

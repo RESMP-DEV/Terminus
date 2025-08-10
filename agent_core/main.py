@@ -1,36 +1,37 @@
 import asyncio
 import json
 import os
-import time
-import uuid
-from typing import Any, Dict, List, Optional
-
-import socketio
-import structlog
-from fastapi import FastAPI, WebSocket, Response
-from pydantic import ValidationError
-from dotenv import load_dotenv
-
-# Metrics
-from prometheus_client import Counter, Histogram, CONTENT_TYPE_LATEST, generate_latest
 
 # System checks
 import pwd
+import time
+import uuid
+from typing import Any, Dict, List
+
+import socketio
+import structlog
+from dotenv import load_dotenv
+from fastapi import FastAPI, Response, WebSocket
+
+# Metrics
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from pydantic import ValidationError
+
+from agent_core import api_client, sandbox
 
 # Internal modules
 from agent_core.types import (
+    ErrorDetectedPayload,
     ExecuteGoalPayload,
     PlanGeneratedPayload,
+    RePlanningPayload,
     StepExecutingPayload,
     StepResultPayload,
-    ErrorDetectedPayload,
-    RePlanningPayload,
     WorkflowCompletePayload,
 )
-from agent_core import sandbox
-from agent_core import api_client
 
 # ---- Utility coercion helpers (silence typing issues for sandbox result dicts) ----
+
 
 def _safe_int(value: object, default: int = -1) -> int:
     try:
@@ -43,6 +44,7 @@ def _safe_int(value: object, default: int = -1) -> int:
     except Exception:
         return default
 
+
 def _safe_str(value: object, default: str = "") -> str:
     try:
         if value is None:
@@ -50,6 +52,7 @@ def _safe_str(value: object, default: str = "") -> str:
         return str(value)
     except Exception:
         return default
+
 
 # ---- Configuration & Logging ----
 
@@ -116,9 +119,11 @@ SANDBOX_LATENCY = Histogram(
 
 # ---- Error Taxonomy ----
 
+
 def _cat(msg: str, category: str) -> str:
     # Prefix message with category while keeping API contract unchanged
     return f"[{category}] {msg}"
+
 
 # ---- Server (FastAPI + Socket.IO) ----
 
@@ -127,26 +132,32 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 app = FastAPI()
 sio_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
+
 # Health/Readiness endpoints
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
 
 @app.get("/readyz")
 async def readyz():
     status = "ready" if _RUNTIME_READY else "degraded"
     return {"status": status, "issues": _RUNTIME_ISSUES}
 
+
 @app.get("/metrics")
 async def metrics():
     data = generate_latest()  # type: ignore
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
+
 # Optional raw WebSocket endpoint for diagnostics
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    await ws.send_text(json.dumps({"type": "status", "payload": {"message": "raw websocket online"}}))
+    await ws.send_text(
+        json.dumps({"type": "status", "payload": {"message": "raw websocket online"}})
+    )
     try:
         while True:
             data = await ws.receive_text()
@@ -154,10 +165,13 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception:
         await ws.close()
 
+
 # ---- Session / Rate limiting / Limits ----
+
 
 def new_session_id() -> str:
     return uuid.uuid4().hex[:12]
+
 
 # Simple per-socket rate limiter in-memory
 _last_exec_ts: Dict[str, float] = {}
@@ -171,14 +185,18 @@ _RUNNING_TASKS: Dict[str, asyncio.Task] = {}
 
 # ---- Event helpers ----
 
+
 async def emit_json(event_type: str, payload: Dict[str, Any], sid: str):
     await sio.emit(event_type, {"type": event_type, "payload": payload}, to=sid)
 
+
 # ---- Lifecycle ----
+
 
 @app.on_event("startup")
 async def _on_startup():
     logger.info("engine_startup", ready=_RUNTIME_READY, issues=_RUNTIME_ISSUES)
+
 
 @app.on_event("shutdown")
 async def _on_shutdown():
@@ -191,12 +209,15 @@ async def _on_shutdown():
     await asyncio.sleep(0.1)
     logger.info("engine_shutdown_end")
 
+
 # ---- Socket.IO handlers ----
+
 
 @sio.event
 async def connect(sid, environ):
     logger.info("socket_connected", sid=sid)
     await emit_json("status", {"message": "connected"}, sid)
+
 
 @sio.event
 async def disconnect(sid):
@@ -205,6 +226,7 @@ async def disconnect(sid):
     task = _RUNNING_TASKS.pop(sid, None)
     if task and not task.done():
         task.cancel()
+
 
 # Contract: {"type": "execute_goal", "payload": {"goal": "..."}}
 @sio.event
@@ -225,7 +247,9 @@ async def execute_goal(sid, data):
         logger.warning("rate_limited", sid=sid, min_interval=MIN_EXECUTE_GOAL_INTERVAL_SEC)
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=_cat(msg, "rate_limit"), failed_step="rate_limit").model_dump(),
+            ErrorDetectedPayload(
+                error=_cat(msg, "rate_limit"), failed_step="rate_limit"
+            ).model_dump(),
             sid,
         )
         return
@@ -241,7 +265,10 @@ async def execute_goal(sid, data):
         logger.warning("invalid_execute_goal_payload", sid=sid, error=str(e))
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=_cat(f"Invalid execute_goal payload: {e}", "validation"), failed_step="validate").model_dump(),
+            ErrorDetectedPayload(
+                error=_cat(f"Invalid execute_goal payload: {e}", "validation"),
+                failed_step="validate",
+            ).model_dump(),
             sid,
         )
         return
@@ -250,14 +277,20 @@ async def execute_goal(sid, data):
     if not goal:
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=_cat("Goal must be a non-empty string", "validation"), failed_step="validate").model_dump(),
+            ErrorDetectedPayload(
+                error=_cat("Goal must be a non-empty string", "validation"),
+                failed_step="validate",
+            ).model_dump(),
             sid,
         )
         return
     if len(goal) > MAX_GOAL_LEN:
         await emit_json(
             "error_detected",
-            ErrorDetectedPayload(error=_cat(f"Goal too long (>{MAX_GOAL_LEN} chars)", "validation"), failed_step="validate").model_dump(),
+            ErrorDetectedPayload(
+                error=_cat(f"Goal too long (>{MAX_GOAL_LEN} chars)", "validation"),
+                failed_step="validate",
+            ).model_dump(),
             sid,
         )
         return
@@ -278,7 +311,10 @@ async def execute_goal(sid, data):
                 logger.error("planner_error", sid=sid, session_id=session_id, error=str(e))
                 await emit_json(
                     "error_detected",
-                    ErrorDetectedPayload(error=_cat(f"Planner error: {e}", "planner"), failed_step="planning").model_dump(),
+                    ErrorDetectedPayload(
+                        error=_cat(f"Planner error: {e}", "planner"),
+                        failed_step="planning",
+                    ).model_dump(),
                     sid,
                 )
                 return
@@ -320,10 +356,19 @@ async def execute_goal(sid, data):
                         latency=time.time() - start_exec,
                     )
                 except Exception as e:
-                    logger.error("executor_error", sid=sid, session_id=session_id, step=step, error=str(e))
+                    logger.error(
+                        "executor_error",
+                        sid=sid,
+                        session_id=session_id,
+                        step=step,
+                        error=str(e),
+                    )
                     await emit_json(
                         "error_detected",
-                        ErrorDetectedPayload(error=_cat(f"Executor error: {e}", "executor"), failed_step=step).model_dump(),
+                        ErrorDetectedPayload(
+                            error=_cat(f"Executor error: {e}", "executor"),
+                            failed_step=step,
+                        ).model_dump(),
                         sid,
                     )
                     # Attempt re-planning
@@ -340,13 +385,25 @@ async def execute_goal(sid, data):
                                 session_id=session_id,
                             )
                         step_index = 0
-                        await emit_json("plan_generated", PlanGeneratedPayload(plan=plan_list).model_dump(), sid)
+                        await emit_json(
+                            "plan_generated",
+                            PlanGeneratedPayload(plan=plan_list).model_dump(),
+                            sid,
+                        )
                         continue
                     except Exception as e2:
-                        logger.error("replanning_failed", sid=sid, session_id=session_id, error=str(e2))
+                        logger.error(
+                            "replanning_failed",
+                            sid=sid,
+                            session_id=session_id,
+                            error=str(e2),
+                        )
                         await emit_json(
                             "error_detected",
-                            ErrorDetectedPayload(error=_cat(f"Re-planning failed: {e2}", "planner"), failed_step=step).model_dump(),
+                            ErrorDetectedPayload(
+                                error=_cat(f"Re-planning failed: {e2}", "planner"),
+                                failed_step=step,
+                            ).model_dump(),
                             sid,
                         )
                         return
@@ -401,7 +458,10 @@ async def execute_goal(sid, data):
                     await emit_json(
                         "error_detected",
                         ErrorDetectedPayload(
-                            error=_cat(_safe_str(result.get("stderr", ""))[:2000] or "unknown error", "sandbox"),
+                            error=_cat(
+                                _safe_str(result.get("stderr", ""))[:2000] or "unknown error",
+                                "sandbox",
+                            ),
                             failed_step=step,
                         ).model_dump(),
                         sid,
@@ -422,13 +482,25 @@ async def execute_goal(sid, data):
                                 session_id=session_id,
                             )
                         step_index = 0
-                        await emit_json("plan_generated", PlanGeneratedPayload(plan=plan_list).model_dump(), sid)
+                        await emit_json(
+                            "plan_generated",
+                            PlanGeneratedPayload(plan=plan_list).model_dump(),
+                            sid,
+                        )
                         continue
                     except Exception as e:
-                        logger.error("replanning_failed", sid=sid, session_id=session_id, error=str(e))
+                        logger.error(
+                            "replanning_failed",
+                            sid=sid,
+                            session_id=session_id,
+                            error=str(e),
+                        )
                         await emit_json(
                             "error_detected",
-                            ErrorDetectedPayload(error=_cat(f"Re-planning failed: {e}", "planner"), failed_step=step).model_dump(),
+                            ErrorDetectedPayload(
+                                error=_cat(f"Re-planning failed: {e}", "planner"),
+                                failed_step=step,
+                            ).model_dump(),
                             sid,
                         )
                         return
@@ -449,7 +521,9 @@ async def execute_goal(sid, data):
             logger.info("workflow_cancelled", sid=sid)
             await emit_json(
                 "error_detected",
-                ErrorDetectedPayload(error=_cat("Workflow cancelled", "cancelled"), failed_step="cancel").model_dump(),
+                ErrorDetectedPayload(
+                    error=_cat("Workflow cancelled", "cancelled"), failed_step="cancel"
+                ).model_dump(),
                 sid,
             )
             raise
@@ -468,6 +542,7 @@ async def execute_goal(sid, data):
     except asyncio.CancelledError:
         # Already handled inside _workflow
         pass
+
 
 # Entrypoint helper for uvicorn
 def build_asgi():

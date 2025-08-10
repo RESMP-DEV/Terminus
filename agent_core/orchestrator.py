@@ -1,10 +1,12 @@
-from typing import List, Dict, Any, Optional
 import json
+from typing import Any, Dict, List, Optional
 
 from agent_core import api_client
 
 
-def create_initial_plan(user_goal: str, session_id: str, enable_search: Optional[bool] = None) -> List[str]:
+def create_initial_plan(
+    user_goal: str, session_id: str, enable_search: Optional[bool] = None
+) -> List[str]:
     """
     Orchestrator.create_initial_plan()
 

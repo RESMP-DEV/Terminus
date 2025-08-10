@@ -86,7 +86,11 @@ def execute_command(command: str) -> Dict[str, object]:
             text=True,
             check=False,
         )
-        return {"stdout": result.stdout, "stderr": result.stderr, "exit_code": result.returncode}
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.returncode,
+        }
     except FileNotFoundError:
         return {
             "stdout": "",

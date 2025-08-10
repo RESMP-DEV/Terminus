@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from agent_core import sandbox

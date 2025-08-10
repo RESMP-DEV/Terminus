@@ -24,14 +24,14 @@ export default function Home() {
 
   const handleAdvanceStep = (stepId: OrchestrationStep["id"]) => {
     engine.advanceStep(stepId);
-    
+
     // Scroll to next step
     const currentIndex = steps.findIndex(s => s.id === stepId);
     const nextIndex = currentIndex + 1;
     if (nextIndex < stepRefs.current.length && stepRefs.current[nextIndex]) {
-      stepRefs.current[nextIndex]?.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'center' 
+      stepRefs.current[nextIndex]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
       });
     }
   };
@@ -130,7 +130,7 @@ export default function Home() {
                   onRetry={handleRetryStep}
                 />
               </div>
-              
+
               {/* Arrow connector between steps */}
               {index < steps.length - 1 && (
                 <ArrowDownConnector

@@ -39,7 +39,7 @@ export default function ArrowDownConnector({ isVisible, delay = 0 }: ArrowDownPr
           }}
           className="absolute inset-0 w-10 h-10 bg-blue-200 rounded-full"
         />
-        
+
         {/* Arrow container */}
         <div className="relative w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center shadow-sm">
           <motion.div

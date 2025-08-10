@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from agent_core import api_client
 
