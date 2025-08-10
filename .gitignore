@@ -212,3 +212,5 @@ logs/backend.pid
 .gitignore
 logs/demo2.txt
 oai_gpt-oss_model_card.pdf
+
+CLAUDE.md

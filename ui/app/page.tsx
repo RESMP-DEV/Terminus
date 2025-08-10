@@ -85,9 +85,8 @@ export default function Home() {
   };
 
   const getStepVisibility = (index: number) => {
-    if (index === 0) return true;
-    const prevStep = steps[index - 1];
-    return prevStep?.status === "completed" || prevStep?.status === "active";
+    // Always show all steps
+    return true;
   };
 
   return (
