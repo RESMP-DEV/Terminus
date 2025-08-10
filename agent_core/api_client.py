@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 from openai import APIError, OpenAI
 
+from agent_core.schemas import BASH_SCHEMA, PLAN_SCHEMA
+
 load_dotenv()
 
 # Environment/config
@@ -128,42 +130,6 @@ def _parse_plan_text_to_list(plan_text: str) -> List[str]:
         if raw:
             steps.append(raw)
     return steps
-
-
-# ---- Planner JSON Schema (strict structured output) ----
-
-PLAN_SCHEMA: Dict[str, Any] = {
-    "name": "plan_schema",
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["plan"],
-        "properties": {
-            "plan": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 50,
-                "items": {"type": "string", "minLength": 1},
-            }
-        },
-    },
-    "strict": True,
-}
-
-# ---- Executor JSON Schema (non-strict structured output) ----
-
-BASH_SCHEMA: Dict[str, Any] = {
-    "name": "bash_schema",
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["command"],
-        "properties": {
-            "command": {"type": "string", "minLength": 1},
-        },
-    },
-    "strict": True,
-}
 
 
 def _build_planner_tools(
