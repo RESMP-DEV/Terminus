@@ -2,6 +2,7 @@ import os
 import re
 import shlex
 import shutil
+import asyncio
 import subprocess
 from typing import Dict, List, Tuple
 
@@ -59,14 +60,9 @@ def _sanitize_command(cmd: str) -> Tuple[bool, str]:
 
     return True, ""
 
-
-def _execute_command_unmanaged(command: str) -> Dict[str, object]:
+async def _execute_command_unmanaged_async(command: str) -> Dict[str, object]:
     """
-    sandbox._execute_command_unmanaged()
-
-    Private: Execute a command without virtualenv activation.
-    This is the original `execute_command` implementation, renamed to
-    clarify that it does not manage environments.
+    Private: Execute a command without virtualenv activation, asynchronously.
     """
     ok, err = _sanitize_command(command)
     if not ok:
@@ -75,20 +71,20 @@ def _execute_command_unmanaged(command: str) -> Dict[str, object]:
     user = "root"
     force_local = _env_flag("SANDBOX_FORCE_LOCAL", "false")
 
-    def _run_local() -> Dict[str, object]:
+    async def _run_local_async() -> Dict[str, object]:
         try:
-            result = subprocess.run(
-                ["bash", "-lc", command],
-                capture_output=True,
-                text=True,
-                check=False,
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            stdout, stderr = await proc.communicate()
             return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exit_code": result.returncode,
+                "stdout": stdout.decode(),
+                "stderr": stderr.decode(),
+                "exit_code": proc.returncode,
             }
-        except Exception as e:  # pragma: no cover - unexpected runtime errors
+        except Exception as e:
             return {"stdout": "", "stderr": str(e), "exit_code": -1}
 
     # Prefer sudo sandbox unless forced local or prerequisites missing
@@ -96,39 +92,49 @@ def _execute_command_unmanaged(command: str) -> Dict[str, object]:
         sudo_path = shutil.which("sudo")
         if sudo_path:
             try:
-                result = subprocess.run(
-                    [sudo_path, "-u", user, "bash", "-lc", command],
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                proc = await asyncio.create_subprocess_exec(
+                    sudo_path,
+                    "-u",
+                    user,
+                    "bash",
+                    "-lc",
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
+                stdout, stderr = await proc.communicate()
                 return {
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "exit_code": result.returncode,
+                    "stdout": stdout.decode(),
+                    "stderr": stderr.decode(),
+                    "exit_code": proc.returncode,
                 }
             except Exception:
-                # Fall through to local if sudo execution fails for any reason
-                return _run_local()
+                return await _run_local_async()
         else:
-            # sudo not available -> local fallback
-            return _run_local()
+            return await _run_local_async()
 
-    # Forced local execution path
-    return _run_local()
+    return await _run_local_async()
+
+
+def _execute_command_unmanaged(command: str) -> Dict[str, object]:
+    """
+    Synchronous wrapper for the async unmanaged command execution.
+    """
+    return asyncio.run(_execute_command_unmanaged_async(command))
+
+
+async def execute_command_async(command: str) -> Dict[str, object]:
+    """
+    Execute a command asynchronously within the project's .venv_demo virtual environment.
+    """
+    venv_activate_path = os.path.join(os.getcwd(), ".venv_demo", "bin", "activate")
+    wrapped_command = f"source '{venv_activate_path}' && {command}"
+    return await _execute_command_unmanaged_async(wrapped_command)
 
 
 def execute_command(command: str) -> Dict[str, object]:
     """
-    sandbox.execute_command()
-
-    Execute a command within the project's .venv_demo virtual environment.
-    This wrapper ensures that all commands are run in an isolated environment,
-    preventing conflicts with system-wide packages. It activates the virtualenv
-    before delegating to the unmanaged execution function.
+    Execute a command synchronously within the project's .venv_demo virtual environment.
     """
-    venv_activate_path = os.path.join(os.getcwd(), ".venv_demo", "bin", "activate")
-    # Note: `bash -lc` is used by the underlying sandbox command
-    # `source` is a bash built-in, so this should be safe.
-    wrapped_command = f"source '{venv_activate_path}' && {command}"
+    return asyncio.run(execute_command_async(command))
     return _execute_command_unmanaged(wrapped_command)

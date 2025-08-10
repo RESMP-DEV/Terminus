@@ -240,7 +240,7 @@ def run_planner(
 
     system_prompt = (
         "You are an expert DevOps and systems engineer Planner.\n"
-        "Task: Decompose the user's goal into a minimal, correct step-by-step plan.\n"
+        "Task: Decompose the user's goal into a minimal, correct step-by-step plan of simple, single-line bash commands.\n"
         'Output STRICT JSON with a single key "plan": a JSON array of short, imperative steps.\n'
         "Do not include explanations, only the JSON object."
     )
@@ -375,7 +375,7 @@ def _to_single_line(cmd: str) -> str:
     single = " ".join(cmd.replace("\t", " ").replace("\r", " ").replace("\n", " ").split())
     return single.strip()
 
-def run_executor(
+async def run_executor_async(
     sub_task: str,
     session_id: str,
     strict_mode: bool = False,
@@ -383,7 +383,7 @@ def run_executor(
 ) -> str:
     """
     Translate a sub-task into a single-line executable bash command
-    by calling the local executor API.
+    by calling the local executor API asynchronously.
 
     Returns: single-line bash command as str.
     """
@@ -402,11 +402,13 @@ def run_executor(
         # Default noop
         return "echo noop"
 
-    def _call_local_executor():
+    async def _call_local_executor_async():
         try:
-            with httpx.Client(timeout=30.0) as http_client:
-                response = http_client.post(
-                    EXECUTOR_API_URL, json={"prompt": sub_task, "max_new_tokens": 256}
+            # Replace 0.0.0.0 with localhost for client requests
+            api_url = EXECUTOR_API_URL.replace("0.0.0.0", "localhost")
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    api_url, json={"prompt": sub_task, "max_new_tokens": 256}
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -417,5 +419,25 @@ def run_executor(
         except json.JSONDecodeError as e:
             raise Exception(f"Failed to decode JSON from local executor: {e}") from e
 
-    command = _retry(_call_local_executor)
+    # The _retry function is synchronous, so we can't use it directly.
+    # For now, we'll just call the async function directly without retries.
+    # A proper solution would be to implement an async retry mechanism.
+    command = await _call_local_executor_async()
     return _to_single_line(command or "")
+
+
+def run_executor(
+    sub_task: str,
+    session_id: str,
+    strict_mode: bool = False,
+    previous_response_id: Optional[str] = None,
+) -> str:
+    """
+    Translate a sub-task into a single-line executable bash command
+    by calling the local executor API.
+
+    Returns: single-line bash command as str.
+    """
+    return asyncio.run(
+        run_executor_async(sub_task, session_id, strict_mode, previous_response_id)
+    )

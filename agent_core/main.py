@@ -366,14 +366,41 @@ async def execute_goal(sid, data):
 
                 step = plan_list[step_index]
 
-                # Translate to bash command
-                try:
-                    start_exec = time.time()
-                    with EXECUTOR_LATENCY.time():
-                        command = api_client.run_executor(
-                            sub_task=step,
-                            session_id=session_id,
-                        )
+                command = step
+                is_direct_command = any(
+                    step.startswith(pfx)
+                    for pfx in (
+                        "if",
+                        "while",
+                        "curl",
+                        "sudo",
+                        "rm",
+                        "wget",
+                        "apt",
+                        "apt-get",
+                        "dnf",
+                        "yum",
+                        "brew",
+                        "winget",
+                        "choco",
+                        "bash",
+                        "echo",
+                        "cat",
+                        "ls",
+                        "cd",
+                        "mkdir",
+                        "touch",
+                    )
+                )
+
+                if not is_direct_command:
+                    try:
+                        start_exec = time.time()
+                        with EXECUTOR_LATENCY.time():
+                            command = await api_client.run_executor_async(
+                                sub_task=step,
+                                session_id=session_id,
+                            )
                         # Short-circuit steps that try to open GUI terminals or use Windows-only shells
                         forbidden_prefixes = (
                             "open -a Terminal",  # macOS GUI app
@@ -384,68 +411,67 @@ async def execute_goal(sid, data):
                         )
                         if any(command.lower().startswith(pfx) for pfx in forbidden_prefixes):
                             raise RuntimeError(f"forbidden command: {command}")
-                    logger.info(
-                        "executor_command",
-                        sid=sid,
-                        session_id=session_id,
-                        step_index=step_index,
-                        step=step,
-                        command=command,
-                        latency=time.time() - start_exec,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "executor_error",
-                        sid=sid,
-                        session_id=session_id,
-                        step=step,
-                        error=str(e),
-                    )
-                    await emit_json(
-                        "error_detected",
-                        ErrorDetectedPayload(
-                            error=_cat(f"Executor error: {e}", "executor"),
-                            failed_step=step,
-                        ).model_dump(),
-                        sid,
-                    )
-                    # Attempt re-planning
-                    await emit_json("re_planning", RePlanningPayload().model_dump(), sid)
-                    try:
-                        revised_goal = (
-                            f"Revise plan after failure.\nOriginal goal: {goal}\nFailed step: {step}\n"
-                            f"Error: {e}\nHistory: {json.dumps(history)[:4000]}"
-                        )
-                        with PLANNER_LATENCY.time():
-                            plan_list = await asyncio.to_thread(
-                                api_client.run_planner,
-                                user_goal=revised_goal,
-                                session_id=session_id,
-                            )
-                        step_index = 0
-                        await emit_json(
-                            "plan_generated",
-                            PlanGeneratedPayload(plan=plan_list).model_dump(),
-                            sid,
-                        )
-                        continue
-                    except Exception as e2:
-                        logger.error(
-                            "replanning_failed",
+                        logger.info(
+                            "executor_command",
                             sid=sid,
                             session_id=session_id,
-                            error=str(e2),
+                            step_index=step_index,
+                            step=step,
+                            command=command,
+                            latency=time.time() - start_exec,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "executor_error",
+                            sid=sid,
+                            session_id=session_id,
+                            step=step,
+                            error=str(e),
                         )
                         await emit_json(
                             "error_detected",
                             ErrorDetectedPayload(
-                                error=_cat(f"Re-planning failed: {e2}", "planner"),
+                                error=_cat(f"Executor error: {e}", "executor"),
                                 failed_step=step,
                             ).model_dump(),
                             sid,
                         )
-                        return
-
+                        # Attempt re-planning
+                        await emit_json("re_planning", RePlanningPayload().model_dump(), sid)
+                        try:
+                            revised_goal = (
+                                f"Revise plan after failure.\nOriginal goal: {goal}\nFailed step: {step}\n"
+                                f"Error: {e}\nHistory: {json.dumps(history)[:4000]}"
+                            )
+                            with PLANNER_LATENCY.time():
+                                plan_list = await asyncio.to_thread(
+                                    api_client.run_planner,
+                                    user_goal=revised_goal,
+                                    session_id=session_id,
+                                )
+                            step_index = 0
+                            await emit_json(
+                                "plan_generated",
+                                PlanGeneratedPayload(plan=plan_list).model_dump(),
+                                sid,
+                            )
+                            continue
+                        except Exception as e2:
+                            logger.error(
+                                "replanning_failed",
+                                sid=sid,
+                                session_id=session_id,
+                                error=str(e2),
+                            )
+                            await emit_json(
+                                "error_detected",
+                                ErrorDetectedPayload(
+                                    error=_cat(f"Re-planning failed: {e2}", "planner"),
+                                    failed_step=step,
+                                ).model_dump(),
+                                sid,
+                            )
+                            return
                 # Notify UI of step executing + command
                 await emit_json(
                     "step_executing",
@@ -457,7 +483,7 @@ async def execute_goal(sid, data):
                 STEPS_EXECUTED.inc()
                 start_sbx = time.time()
                 with SANDBOX_LATENCY.time():
-                    result = sandbox.execute_command(command)
+                    result = await sandbox.execute_command_async(command)
 
                 # Emit results
                 await emit_json(
