@@ -13,6 +13,7 @@ export default function LiveDemo() {
   const [lastResult, setLastResult] = useState("");
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState("");
+  const [statusMsg, setStatusMsg] = useState<string>("");
   // Use a stable initial default during SSR/first render
   const [serverUrl, setServerUrl] = useState<string>(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000");
 
@@ -32,6 +33,10 @@ export default function LiveDemo() {
       socketClient.on("plan_generated", (payload) => {
         setCurrentPlan(payload.plan);
         setIsExecuting(true);
+      }),
+
+      socketClient.on("status", (payload) => {
+        if (payload?.message) setStatusMsg(payload.message);
       }),
 
       socketClient.on("step_executing", (payload) => {
@@ -129,6 +134,10 @@ export default function LiveDemo() {
           )}
         </div>
       </div>
+
+      {statusMsg && (
+        <div className="mb-4 text-sm text-gray-600">{statusMsg}</div>
+      )}
 
       {/* Backend URL input */}
       <div className="mb-4">

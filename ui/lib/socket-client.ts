@@ -5,6 +5,7 @@ import { TaskPayload } from "./types";
 
 export interface SocketEvents {
   // From server
+  status: (payload: { message: string }) => void;
   plan_generated: (payload: { plan: string[] }) => void;
   step_executing: (payload: { step: string; command?: string }) => void;
   step_result: (payload: { stdout: string; stderr: string; exit_code: number }) => void;
@@ -52,6 +53,10 @@ class SocketClient {
     this.socket = io(url, {
       transports: ["websocket", "polling"],
       timeout: 5000,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 4000,
     });
 
     this.socket.on("connect", () => {
@@ -68,6 +73,7 @@ class SocketClient {
 
     // Forward all events to registered listeners
     const events: (keyof SocketEvents)[] = [
+      "status",
       "plan_generated",
       "step_executing",
       "step_result",

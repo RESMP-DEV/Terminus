@@ -80,13 +80,9 @@ This serves:
 - Socket.IO over HTTP at http://localhost:8000 (Socket.IO endpoint)
 - Raw WebSocket diagnostics at ws://localhost:8000/ws (echo/status only)
 
-Option B: One-liner (loads .env automatically)
+Tip: For stable Socket.IO during development, you can start without reload to avoid disconnects during code changes:
 
-The backend calls dotenv's load_dotenv on startup, so variables in `.env` are picked up automatically. You can start the server with a single command (example path shown for this repo location):
-
-```
-cd /Users/tingyuzhang/Desktop/hackathon/Terminus && . .venv/bin/activate 2>/dev/null || true && python -m uvicorn agent_core.main:build_asgi --factory --host 127.0.0.1 --port 8000 --reload
-```
+- uvicorn agent_core.main:build_asgi --factory --host 127.0.0.1 --port 8000
 
 Socket.IO contract
 
@@ -117,7 +113,7 @@ Planner
 - Optional tools: web_search_preview, file_search (vector_store_ids), remote MCP (via env toggles), constrained via allowed_tools
 
 Executor
-- Model: gpt‑5‑nano
+- Model: gpt‑oss-20b
 - Parameters: reasoning.effort=minimal, text.verbosity=low
 - Strict function-calling: emit_bash function required to guarantee a single-line bash command
 - Post-guard: collapse whitespace, enforce single-line
