@@ -37,9 +37,10 @@ EXECUTOR_CFG_SINGLE_LINE = os.getenv("EXECUTOR_CFG_SINGLE_LINE", r"^.+$")
 
 SAFETY_IDENTIFIER_PREFIX = os.getenv("SAFETY_IDENTIFIER_PREFIX", "terminus-")
 
-# Models
-PLANNER_MODEL = "gpt-5"
-EXECUTOR_MODEL = "gpt-oss-20b"
+# Models (override via env: PLANNER_MODEL, EXECUTOR_MODEL)
+# Choose widely available defaults to avoid model_not_found on standard OpenAI keys.
+PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gpt-4o-mini")
+EXECUTOR_MODEL = os.getenv("EXECUTOR_MODEL", "gpt-4o-mini")
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
