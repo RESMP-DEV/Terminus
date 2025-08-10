@@ -1,4 +1,5 @@
 import pytest
+from httpx import Response
 
 # System under test
 from agent_core import api_client
@@ -59,32 +60,24 @@ def test_planner_parses_plain_text_bullets(monkeypatch):
     assert steps == ["step A", "step B", "step C"]
 
 
-def test_executor_strict_function_fallback_to_text(monkeypatch):
-    # Arrange: strict mode requires a function call; we can still fall back to text
-    def create_impl(**kwargs):
-        # Simulate a response that doesn't include a function call item,
-        # forcing the fallback to output_text extraction.
-        return DummyResponse(output_text="echo hello")
-
-    monkeypatch.setattr(api_client, "client", DummyOpenAIClient(create_impl))
-    monkeypatch.setenv("EXECUTOR_STRICT_FUNCTION", "true")
-
-    # Act
-    cmd = api_client.run_executor(sub_task="Say hello", session_id="sess123", strict_mode=True)
-
-    # Assert
-    assert cmd == "echo hello"
-
-
-def test_executor_minimal_reasoning_text_mode(monkeypatch):
-    # Arrange: non-strict mode uses plain text extraction path
-    def create_impl(**kwargs):
-        return DummyResponse(output_text="printf test")
-
-    monkeypatch.setattr(api_client, "client", DummyOpenAIClient(create_impl))
+def test_executor_calls_local_api(httpx_mock):
+    # Arrange
+    expected_command = "ls -l"
+    httpx_mock.add_response(
+        url=api_client.EXECUTOR_API_URL,
+        method="POST",
+        json={"command": expected_command},
+        status_code=200,
+    )
 
     # Act
-    cmd = api_client.run_executor(sub_task="Print", session_id="sess123", strict_mode=False)
+    command = api_client.run_executor(sub_task="list files", session_id="sess123")
 
     # Assert
-    assert cmd == "printf test"
+    assert command == expected_command
+    request = httpx_mock.get_request()
+    assert request.url == api_client.EXECUTOR_API_URL
+    assert request.method == "POST"
+    
+    import json
+    assert json.loads(request.read().decode()) == {"prompt": "list files", "max_new_tokens": 256}

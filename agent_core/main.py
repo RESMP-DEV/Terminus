@@ -342,11 +342,9 @@ async def execute_goal(sid, data):
                 try:
                     start_exec = time.time()
                     with EXECUTOR_LATENCY.time():
-                        command = await asyncio.to_thread(
-                            api_client.run_executor,
+                        command = await api_client.run_executor(
                             sub_task=step,
                             session_id=session_id,
-                            strict_mode=True,
                         )
                         # Short-circuit steps that try to open GUI terminals or use Windows-only shells
                         forbidden_prefixes = (

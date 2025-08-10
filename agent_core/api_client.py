@@ -1,8 +1,10 @@
+import asyncio
 import json
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from dotenv import load_dotenv
 from openai import APIError, OpenAI
 
@@ -28,19 +30,19 @@ ENABLE_PLANNER_FILE_SEARCH = os.getenv("ENABLE_PLANNER_FILE_SEARCH", "false").lo
 ENABLE_PLANNER_MCP = os.getenv("ENABLE_PLANNER_MCP", "false").lower() == "true"
 PLANNER_STRICT_JSON = os.getenv("PLANNER_STRICT_JSON", "true").lower() == "true"
 
-EXECUTOR_STRICT_FUNCTION = os.getenv("EXECUTOR_STRICT_FUNCTION", "true").lower() == "true"
 # Allow falling back to free-text parsing when non-strict schema parsing fails.
 # Default to false to keep executor output well-structured.
 EXECUTOR_ALLOW_TEXT_FALLBACK = os.getenv("EXECUTOR_ALLOW_TEXT_FALLBACK", "false").lower() == "true"
 # Optional regex for single-line bash CFG guard, defaults to permissive. Planning-only for now.
 EXECUTOR_CFG_SINGLE_LINE = os.getenv("EXECUTOR_CFG_SINGLE_LINE", r"^.+$")
 
+EXECUTOR_API_URL = os.getenv("EXECUTOR_API_URL", "http://localhost:8002/generate")
+
 SAFETY_IDENTIFIER_PREFIX = os.getenv("SAFETY_IDENTIFIER_PREFIX", "terminus-")
 
-# Models (override via env: PLANNER_MODEL, EXECUTOR_MODEL)
+# Models (override via env: PLANNER_MODEL)
 # Choose widely available defaults to avoid model_not_found on standard OpenAI keys.
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "gpt-5")
-EXECUTOR_MODEL = os.getenv("EXECUTOR_MODEL", "gpt-5-nano")
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -54,8 +56,7 @@ def _safety_tag(session_id: str) -> Dict[str, Any]:
     """
     return {"safety_identifier": f"{SAFETY_IDENTIFIER_PREFIX}{session_id}"}
 
-
-def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
+async def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
     """
     Retry fn() on transient API errors only.
     Do NOT retry invalid request errors (400-series schema/param issues).
@@ -63,7 +64,7 @@ def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
     last = None
     for i in range(retries + 1):
         try:
-            return fn()
+            return await fn()
         except APIError as e:
             # Avoid retrying client-side invalid requests (commonly 400)
             status = getattr(e, "status_code", None)
@@ -73,7 +74,7 @@ def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
                 last = e
                 if i == retries:
                     raise
-                time.sleep(backoff * (2**i))
+                await asyncio.sleep(backoff * (2**i))
                 continue
             # Non-transient -> re-raise immediately
             raise
@@ -82,8 +83,9 @@ def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
             last = e
             if i == retries:
                 raise
-            time.sleep(backoff * (2**i))
+            await asyncio.sleep(backoff * (2**i))
     if last:
+        raise last
         raise last
 
 
@@ -374,15 +376,14 @@ def _to_single_line(cmd: str) -> str:
     single = " ".join(cmd.replace("\t", " ").replace("\r", " ").replace("\n", " ").split())
     return single.strip()
 
-
-def run_executor(
+async def run_executor(
     sub_task: str,
     session_id: str,
-    strict_mode: Optional[bool] = None,
     previous_response_id: Optional[str] = None,
 ) -> str:
     """
-    Translate a sub-task into a single-line executable bash command.
+    Translate a sub-task into a single-line executable bash command
+    by calling the local executor API asynchronously.
 
     Returns: single-line bash command as str.
     """
@@ -401,69 +402,21 @@ def run_executor(
         # Default noop
         return "echo noop"
 
-    strict = EXECUTOR_STRICT_FUNCTION if strict_mode is None else bool(strict_mode)
-
-    system_prompt = (
-        "You are a Translator. Output only one valid single-line bash command for the sub-task.\n"
-        "No explanations, no comments, no multi-line, no prompts for confirmation."
-    )
-
-    def _call_text_only():
-        kwargs: Dict[str, Any] = {
-            "model": EXECUTOR_MODEL,
-            "input": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": sub_task},
-            ],
-            "reasoning": {"effort": "minimal"},
-            "text": {"verbosity": "low"},
-            "metadata": _safety_tag(session_id),
-        }
-        if previous_response_id:
-            kwargs["previous_response_id"] = previous_response_id
-        return _responses_create_compat(kwargs)
-
-    def _call_function_strict():
-        tools = _emit_bash_tools_cfg()
-        kwargs: Dict[str, Any] = {
-            "model": EXECUTOR_MODEL,
-            "input": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": sub_task},
-            ],
-            "reasoning": {"effort": "minimal"},
-            "text": {"verbosity": "low"},
-            "tools": tools,
-            "tool_choice": {
-                "type": "allowed_tools",
-                "mode": "required",
-                "tools": [{"type": "function", "name": "emit_bash"}],
-            },
-            "metadata": _safety_tag(session_id),
-        }
-        if previous_response_id:
-            kwargs["previous_response_id"] = previous_response_id
-        return _responses_create_compat(kwargs)
-
-    if strict:
-        resp = _retry(_call_function_strict)
-        cmd = _extract_function_call_command(resp) or _extract_output_text(resp)
-        cmd = _to_single_line(cmd)
-    else:
-        resp = _retry(_call_text_only)
-        raw = _extract_output_text(resp)
-        cmd = raw
+    async def _call_local_executor():
         try:
-            obj = json.loads(raw)
-            if (
-                isinstance(obj, dict)
-                and isinstance(obj.get("command"), str)
-                and obj.get("command", "").strip()
-            ):
-                cmd = obj["command"]
-        except Exception:
-            # Fallback to raw text when JSON parsing fails
-            pass
-        cmd = _to_single_line(cmd)
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    EXECUTOR_API_URL, json={"prompt": sub_task, "max_new_tokens": 256}
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data.get("command", "")
+        except httpx.RequestError as e:
+            # Re-raise as a generic exception to be caught by the retry handler
+            raise Exception(f"Local executor request failed: {e}") from e
+        except json.JSONDecodeError as e:
+            raise Exception(f"Failed to decode JSON from local executor: {e}") from e
 
+    command = await _retry(_call_local_executor)
+    return _to_single_line(command or "")
     return cmd
