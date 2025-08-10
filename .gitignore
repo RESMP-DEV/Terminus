@@ -217,3 +217,5 @@ CLAUDE.md
 /ui/.next
 /ui/node_modules
 ui/next-env.d.ts
+vllm
+=0.2.5

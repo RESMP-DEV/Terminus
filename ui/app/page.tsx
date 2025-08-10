@@ -31,8 +31,8 @@ export default function Home() {
       console.log("[React] Received step update:", newSteps.map(s => `${s.id}:${s.status}`).join(" | "));
       setSteps([...newSteps]); // Force new array reference for React
       // Update execution state based on steps
-      const hasActiveSteps = newSteps.some(s => s.status === "active");
-      const allCompleted = newSteps.every(s => s.status === "completed" || s.status === "pending");
+      const hasActiveSteps = newSteps.some(s => s.status === "executing");
+      const allCompleted = newSteps.every(s => s.status === "success" || s.status === "pending");
       setIsExecuting(hasActiveSteps && !allCompleted);
     });
 
@@ -84,10 +84,9 @@ export default function Home() {
     }
   };
 
-  const getStepVisibility = (index: number) => {
-    // Always show all steps
-    return true;
-  };
+  const visibleSteps = steps
+    .map((step, originalIndex) => ({ step, originalIndex }))
+    .filter(({ step }) => step.status !== "pending");
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -225,23 +224,19 @@ export default function Home() {
           role="list"
           aria-label="Orchestration workflow steps"
         >
-          {steps.map((step, index) => (
+          {visibleSteps.map(({ step, originalIndex }, index) => (
             <div key={step.id}>
               <div
-                ref={el => { stepRefs.current[index] = el; }}
+                ref={el => { stepRefs.current[originalIndex] = el; }}
                 className="scroll-mt-20"
               >
-                <StepCard
-                  step={step}
-                  index={index}
-                  isVisible={getStepVisibility(index)}
-                />
+                <StepCard step={step} index={originalIndex} isVisible={true} />
               </div>
 
               {/* Arrow connector between steps */}
-              {index < steps.length - 1 && (
+              {index < visibleSteps.length - 1 && (
                 <ArrowDownConnector
-                  isVisible={getStepVisibility(index + 1)}
+                  isVisible={true}
                   delay={(index + 1) * 0.12 + 0.3}
                 />
               )}
@@ -250,7 +245,7 @@ export default function Home() {
         </motion.div>
 
         {/* Completion Message */}
-        {steps.every(s => s.status === "completed") && (
+        {steps.length > 0 && steps.every(s => s.status === "success") && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
