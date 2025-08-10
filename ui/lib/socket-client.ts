@@ -1,7 +1,6 @@
 "use client";
 
 import { io, Socket } from "socket.io-client";
-import { TaskPayload } from "./types";
 
 export interface SocketEvents {
   // From server
@@ -19,7 +18,7 @@ export interface SocketEvents {
 
 class SocketClient {
   private socket: Socket | null = null;
-  private listeners: Map<string, Function[]> = new Map();
+  private listeners: Map<string, ((...args: unknown[]) => void)[]> = new Map();
   private static readonly DEFAULT_BACKEND_URL: string =
     process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
   private currentUrl: string | null = null;
@@ -43,7 +42,7 @@ class SocketClient {
     if (this.socket) {
       try {
         this.socket.disconnect();
-      } catch (e) {
+      } catch {
         // no-op
       }
       this.socket = null;
@@ -83,9 +82,10 @@ class SocketClient {
     ];
 
     events.forEach(event => {
-      this.socket?.on(event, (payload: any) => {
+      this.socket?.on(event, (payload: unknown) => {
+        console.log(`[Socket] Received event: ${event}`, payload);
         // Backend emits objects shaped as { type, payload }
-        const data = payload && typeof payload === "object" && "payload" in payload ? payload.payload : payload;
+        const data = payload && typeof payload === "object" && payload !== null && "payload" in payload ? (payload as { payload: unknown }).payload : payload;
         this.emit(event, data);
       });
     });
@@ -106,13 +106,14 @@ class SocketClient {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
-    this.listeners.get(event)!.push(callback);
+    // Type assertion needed for the callback system
+    this.listeners.get(event)!.push(callback as (...args: unknown[]) => void);
 
     // Return unsubscribe function
     return () => {
       const callbacks = this.listeners.get(event);
       if (callbacks) {
-        const index = callbacks.indexOf(callback);
+        const index = callbacks.indexOf(callback as (...args: unknown[]) => void);
         if (index !== -1) {
           callbacks.splice(index, 1);
         }
@@ -120,7 +121,7 @@ class SocketClient {
     };
   }
 
-  private emit(event: string, payload: any) {
+  private emit(event: string, payload: unknown) {
     const callbacks = this.listeners.get(event);
     if (callbacks) {
       callbacks.forEach(callback => callback(payload));

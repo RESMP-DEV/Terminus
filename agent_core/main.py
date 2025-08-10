@@ -348,6 +348,16 @@ async def execute_goal(sid, data):
                             session_id=session_id,
                             strict_mode=True,
                         )
+                        # Short-circuit steps that try to open GUI terminals or use Windows-only shells
+                        forbidden_prefixes = (
+                            "open -a Terminal",  # macOS GUI app
+                            "cmd ",
+                            "cmd.exe",
+                            "start ",
+                            "powershell",
+                        )
+                        if any(command.lower().startswith(pfx) for pfx in forbidden_prefixes):
+                            raise RuntimeError(f"forbidden command: {command}")
                     logger.info(
                         "executor_command",
                         sid=sid,

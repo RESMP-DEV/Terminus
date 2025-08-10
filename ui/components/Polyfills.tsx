@@ -8,7 +8,8 @@ import { useEffect } from "react";
  */
 export default function Polyfills() {
   useEffect(() => {
-    const g: any = globalThis as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = globalThis as any;
     if (typeof g.crypto === "undefined") {
       g.crypto = {};
     }

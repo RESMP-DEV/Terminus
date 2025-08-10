@@ -5,58 +5,83 @@ import { motion } from "framer-motion";
 import StepCard from "@/components/StepCard";
 import ArrowDownConnector from "@/components/ArrowDown";
 import SystemMetricsPanel from "@/components/SystemMetrics";
-import LiveDemo from "@/components/LiveDemo";
 import { OrchestrationEngine } from "@/lib/orchestration";
 import { OrchestrationStep } from "@/lib/types";
-import { Play, RotateCcw } from "lucide-react";
+import { RotateCcw, Wifi, WifiOff, Send, Loader2, Link as LinkIcon } from "lucide-react";
 
 export default function Home() {
   const [steps, setSteps] = useState<OrchestrationStep[]>([]);
   const [engine] = useState(() => new OrchestrationEngine());
-  const [isRunning, setIsRunning] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [goal, setGoal] = useState("");
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [serverUrl, setServerUrl] = useState<string>(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000");
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
-    const unsubscribe = engine.subscribe(setSteps);
+    // Apply localStorage override only on client
+    try {
+      if (typeof window !== "undefined") {
+        const saved = window.localStorage.getItem("terminus.backendUrl");
+        if (saved) setServerUrl(saved);
+      }
+    } catch {}
+
+    const unsubscribe = engine.subscribe((newSteps) => {
+      console.log("[React] Received step update:", newSteps.map(s => `${s.id}:${s.status}`).join(" | "));
+      setSteps([...newSteps]); // Force new array reference for React
+      // Update execution state based on steps
+      const hasActiveSteps = newSteps.some(s => s.status === "active");
+      const allCompleted = newSteps.every(s => s.status === "completed" || s.status === "pending");
+      setIsExecuting(hasActiveSteps && !allCompleted);
+    });
+
     setSteps(engine.getSteps());
-    return unsubscribe;
-  }, [engine]);
 
-  const handleAdvanceStep = (stepId: OrchestrationStep["id"]) => {
-    engine.advanceStep(stepId);
+    // Subscribe to connection status changes
+    const unsubscribeConnection = engine.subscribeConnection(setIsConnected);
 
-    // Scroll to next step
-    const currentIndex = steps.findIndex(s => s.id === stepId);
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < stepRefs.current.length && stepRefs.current[nextIndex]) {
-      stepRefs.current[nextIndex]?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      });
+    // Connect to backend
+    engine.connect(serverUrl);
+
+    return () => {
+      unsubscribe();
+      unsubscribeConnection();
+      engine.destroy();
+    };
+  }, [engine, serverUrl]);
+
+  const handleExecuteGoal = () => {
+    if (goal.trim() && isConnected) {
+      setGoal(goal.trim());
+      engine.executeGoal(goal.trim(), serverUrl);
     }
   };
 
-  const handleRetryStep = (stepId: OrchestrationStep["id"]) => {
-    engine.retryStep(stepId);
-  };
-
-  const handleStartDemo = () => {
-    setIsRunning(true);
-    // Auto-advance through steps for demo
-    const activeStep = steps.find(s => s.status === "active");
-    if (activeStep) {
-      setTimeout(() => {
-        engine.advanceStep(activeStep.id);
-        setIsRunning(false);
-      }, 2000);
+  const handleApplyServerUrl = () => {
+    const url = serverUrl.trim();
+    if (!url) return;
+    try {
+      const u = new URL(url);
+      window.localStorage.setItem("terminus.backendUrl", u.toString());
+      engine.connect(u.toString());
+    } catch {
+      // ignore invalid URL
     }
   };
 
   const handleReset = () => {
     engine.reset();
-    setIsRunning(false);
+    setGoal("");
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleExecuteGoal();
+    }
   };
 
   const getStepVisibility = (index: number) => {
@@ -76,14 +101,17 @@ export default function Home() {
               <p className="text-gray-600">Agent Orchestration Platform</p>
             </div>
             <div className="flex items-center space-x-3">
-              <button
-                onClick={handleStartDemo}
-                disabled={isRunning}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Play className="w-4 h-4" />
-                <span>{isRunning ? "Running..." : "Start Demo"}</span>
-              </button>
+              {isConnected ? (
+                <div className="flex items-center space-x-2 text-green-600">
+                  <Wifi className="w-4 h-4" />
+                  <span className="text-sm">Connected</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2 text-red-600">
+                  <WifiOff className="w-4 h-4" />
+                  <span className="text-sm">Disconnected</span>
+                </div>
+              )}
               <button
                 onClick={handleReset}
                 className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
@@ -102,10 +130,92 @@ export default function Home() {
           <SystemMetricsPanel metrics={engine.getMetrics()} />
         </div>
 
-        {/* Live Demo */}
-        <div className="mb-8">
-          <LiveDemo />
-        </div>
+        {/* Goal Input Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm mb-8"
+        >
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Execute Agent Goal</h3>
+
+          {/* Backend URL Configuration */}
+          <div className="mb-4">
+            <label htmlFor="backend-url" className="block text-sm font-medium text-gray-700 mb-2">
+              Backend Server URL
+            </label>
+            <div className="flex space-x-2">
+              <input
+                id="backend-url"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                placeholder="http://localhost:8000"
+                className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
+              />
+              <button
+                onClick={handleApplyServerUrl}
+                className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors flex items-center space-x-2"
+              >
+                <LinkIcon className="w-4 h-4" />
+                <span>Apply</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Goal Input */}
+          <div className="mb-4">
+            <label htmlFor="goal" className="block text-sm font-medium text-gray-700 mb-2">
+              Enter a goal for the agent to execute:
+            </label>
+            <div className="flex space-x-2">
+              <textarea
+                id="goal"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="e.g., Create a README.md file for this project"
+                className="flex-1 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-gray-900 placeholder:text-gray-500"
+                rows={2}
+              />
+              <button
+                onClick={handleExecuteGoal}
+                disabled={!goal.trim() || !isConnected || isExecuting}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              >
+                {isExecuting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>Execute</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Connection Help */}
+          {!isConnected && (
+            <div className="p-4 bg-gray-50 rounded-md">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Backend Not Available</h4>
+              <p className="text-sm text-gray-600 mb-2">
+                The backend service is not connected. To enable execution:
+              </p>
+              <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
+                <li>
+                  Start the Terminus backend:
+                  {" "}
+                  <code className="bg-gray-200 px-1 rounded">
+                    uvicorn agent_core.main:build_asgi --factory --reload --host 0.0.0.0 --port 8000
+                  </code>
+                </li>
+                <li>
+                  Ensure it&apos;s running on {" "}
+                  <code className="bg-gray-200 px-1 rounded">{serverUrl}</code>
+                </li>
+                <li>The page will automatically reconnect</li>
+              </ol>
+            </div>
+          )}
+        </motion.div>
 
         {/* Orchestration Flow */}
         <motion.div
@@ -126,8 +236,6 @@ export default function Home() {
                   step={step}
                   index={index}
                   isVisible={getStepVisibility(index)}
-                  onAdvance={handleAdvanceStep}
-                  onRetry={handleRetryStep}
                 />
               </div>
 
@@ -163,7 +271,7 @@ export default function Home() {
         <div className="mt-16 pt-8 border-t border-gray-200 text-center text-gray-500">
           <p>Built with Next.js, Tailwind CSS, and Framer Motion</p>
           <div className="mt-2 flex items-center justify-center space-x-4 text-sm">
-            <span>Task Queue → Agent Executor → Secure Sandbox → System Monitor</span>
+            <span>Goal Input → AI Planner → Step Executor → Secure Sandbox → System Monitor</span>
           </div>
         </div>
       </div>

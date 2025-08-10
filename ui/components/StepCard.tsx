@@ -6,10 +6,8 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Play,
   ChevronDown,
   ChevronRight,
-  RotateCcw,
   Activity
 } from "lucide-react";
 import { clsx } from "clsx";
@@ -19,18 +17,16 @@ interface StepCardProps {
   step: OrchestrationStep;
   index: number;
   isVisible: boolean;
-  onAdvance?: (stepId: OrchestrationStep["id"]) => void;
-  onRetry?: (stepId: OrchestrationStep["id"]) => void;
 }
 
 export default function StepCard({
   step,
   index,
-  isVisible,
-  onAdvance,
-  onRetry
+  isVisible
 }: StepCardProps) {
   const [showDetails, setShowDetails] = useState(false);
+
+  console.log(`[StepCard] ${step.id}: status=${step.status}, visible=${isVisible}`);
 
   const getStatusIcon = () => {
     switch (step.status) {
@@ -39,7 +35,6 @@ export default function StepCard({
       case "failed":
         return <XCircle className="w-5 h-5 text-red-500" />;
       case "active":
-      case "executing":
         return <Activity className="w-5 h-5 text-blue-500 animate-pulse" />;
       default:
         return <Clock className="w-5 h-5 text-gray-400" />;
@@ -55,15 +50,10 @@ export default function StepCard({
         return `${baseClasses} bg-red-100 text-red-700`;
       case "active":
         return `${baseClasses} bg-blue-100 text-blue-700`;
-      case "executing":
-        return `${baseClasses} bg-yellow-100 text-yellow-700`;
       default:
         return `${baseClasses} bg-gray-100 text-gray-500`;
     }
   };
-
-  const canAdvance = step.status === "active" && step.passCriteria.length > 0;
-  const canRetry = step.status === "failed";
 
   if (!isVisible) {
     return (
@@ -117,7 +107,7 @@ export default function StepCard({
                     <CheckCircle2
                       className={clsx("w-4 h-4", {
                         "text-green-500": step.status === "completed",
-                        "text-blue-500": step.status === "active" || step.status === "executing",
+                        "text-blue-500": step.status === "active",
                         "text-gray-300": step.status === "pending" || step.status === "blocked"
                       })}
                     />
@@ -142,7 +132,7 @@ export default function StepCard({
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Details Toggle */}
       <div className="mt-6 flex items-center justify-between">
         <button
           onClick={() => setShowDetails(!showDetails)}
@@ -154,27 +144,13 @@ export default function StepCard({
           <span>Details</span>
         </button>
 
-        <div className="flex space-x-2">
-          {canRetry && onRetry && (
-            <button
-              onClick={() => onRetry(step.id)}
-              className="flex items-center space-x-2 px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors text-sm"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>Retry</span>
-            </button>
-          )}
-
-          {canAdvance && onAdvance && (
-            <button
-              onClick={() => onAdvance(step.id)}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
-            >
-              <Play className="w-4 h-4" />
-              <span>Continue</span>
-            </button>
-          )}
-        </div>
+        {/* Status indicator for automated flow */}
+        {step.status === "active" && (
+          <div className="flex items-center space-x-2 text-blue-600 text-sm">
+            <Activity className="w-4 h-4 animate-pulse" />
+            <span>Processing...</span>
+          </div>
+        )}
       </div>
 
       {/* Details Section */}
