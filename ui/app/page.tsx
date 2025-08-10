@@ -5,12 +5,14 @@ import { motion } from "framer-motion";
 import StepCard from "@/components/StepCard";
 import ArrowDownConnector from "@/components/ArrowDown";
 import SystemMetricsPanel from "@/components/SystemMetrics";
+import PlanDisplay, { PlanStep } from "@/components/PlanDisplay";
 import { OrchestrationEngine } from "@/lib/orchestration";
 import { OrchestrationStep } from "@/lib/types";
 import { RotateCcw, Wifi, WifiOff, Send, Loader2, Link as LinkIcon } from "lucide-react";
 
 export default function Home() {
   const [steps, setSteps] = useState<OrchestrationStep[]>([]);
+  const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [engine] = useState(() => new OrchestrationEngine());
   const [isConnected, setIsConnected] = useState(false);
   const [goal, setGoal] = useState("");
@@ -18,7 +20,10 @@ export default function Home() {
   const [serverUrl, setServerUrl] = useState<string>(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000");
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+  // Initialize once on mount
   useEffect(() => {
+    console.log("[React] Component mounted, setting up subscriptions");
+
     // Apply localStorage override only on client
     try {
       if (typeof window !== "undefined") {
@@ -29,7 +34,11 @@ export default function Home() {
 
     const unsubscribe = engine.subscribe((newSteps) => {
       console.log("[React] Received step update:", newSteps.map(s => `${s.id}:${s.status}`).join(" | "));
-      setSteps([...newSteps]); // Force new array reference for React
+      console.log("[React] New steps array:", newSteps);
+
+      // Force complete re-render with new array
+      setSteps(newSteps.map(step => ({ ...step })));
+
       // Update execution state based on steps
       const hasActiveSteps = newSteps.some(s => s.status === "active");
       const allCompleted = newSteps.every(s => s.status === "completed" || s.status === "pending");
@@ -41,14 +50,25 @@ export default function Home() {
     // Subscribe to connection status changes
     const unsubscribeConnection = engine.subscribeConnection(setIsConnected);
 
-    // Connect to backend
-    engine.connect(serverUrl);
+    // Subscribe to plan updates
+    const unsubscribePlan = engine.subscribePlan((newPlanSteps) => {
+      console.log("[React] Received plan update:", newPlanSteps.map(s => `${s.id}:${s.status}`).join(" | "));
+      setPlanSteps([...newPlanSteps]);
+    });
 
     return () => {
+      console.log("[React] Component unmounting, cleaning up subscriptions");
       unsubscribe();
       unsubscribeConnection();
+      unsubscribePlan();
       engine.destroy();
     };
+  }, []); // Empty dependency array - only run once on mount
+
+  // Handle server URL changes separately
+  useEffect(() => {
+    console.log("[React] Server URL changed to:", serverUrl);
+    engine.connect(serverUrl);
   }, [engine, serverUrl]);
 
   const handleExecuteGoal = () => {
@@ -84,10 +104,7 @@ export default function Home() {
     }
   };
 
-  const getStepVisibility = (index: number) => {
-    // Always show all steps
-    return true;
-  };
+  const getStepVisibility = () => true;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -128,6 +145,12 @@ export default function Home() {
         <div className="mb-8">
           <SystemMetricsPanel metrics={engine.getMetrics()} />
         </div>
+
+        {/* Plan Display */}
+        <PlanDisplay
+          steps={planSteps}
+          isVisible={planSteps.length > 0}
+        />
 
         {/* Goal Input Section */}
         <motion.div
@@ -225,28 +248,31 @@ export default function Home() {
           role="list"
           aria-label="Orchestration workflow steps"
         >
-          {steps.map((step, index) => (
-            <div key={step.id}>
-              <div
-                ref={el => { stepRefs.current[index] = el; }}
-                className="scroll-mt-20"
-              >
-                <StepCard
-                  step={step}
-                  index={index}
-                  isVisible={getStepVisibility(index)}
-                />
-              </div>
+          {steps.map((step, index) => {
+            console.log(`[React] Rendering step ${step.id} with status ${step.status}`);
+            return (
+              <div key={`${step.id}-${step.status}-${index}`}>
+                <div
+                  ref={el => { stepRefs.current[index] = el; }}
+                  className="scroll-mt-20"
+                >
+                  <StepCard
+                    step={step}
+                    index={index}
+                    isVisible={getStepVisibility()}
+                  />
+                </div>
 
-              {/* Arrow connector between steps */}
-              {index < steps.length - 1 && (
-                <ArrowDownConnector
-                  isVisible={getStepVisibility(index + 1)}
-                  delay={(index + 1) * 0.12 + 0.3}
-                />
-              )}
-            </div>
-          ))}
+                {/* Arrow connector between steps */}
+                {index < steps.length - 1 && (
+                  <ArrowDownConnector
+                    isVisible={getStepVisibility()}
+                    delay={(index + 1) * 0.12 + 0.3}
+                  />
+                )}
+              </div>
+            );
+          })}
         </motion.div>
 
         {/* Completion Message */}

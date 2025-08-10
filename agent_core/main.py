@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import platform
 
 # System checks
 import pwd
@@ -64,6 +65,12 @@ logger = structlog.get_logger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 SANDBOX_USER = os.getenv("SANDBOX_USER", "sandboxuser")
+SANDBOX_SKIP_USER_CHECK = os.getenv("SANDBOX_SKIP_USER_CHECK", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 # Validate minimal runtime prerequisites early
 _RUNTIME_READY = True
@@ -73,12 +80,17 @@ if not OPENAI_API_KEY:
     _RUNTIME_READY = False
     _RUNTIME_ISSUES.append("OPENAI_API_KEY is not set")
 
-try:
-    pwd.getpwnam(SANDBOX_USER)
-except KeyError:
-    _RUNTIME_ISSUES.append(f"Sandbox user '{SANDBOX_USER}' not found; sandbox execution may fail")
-    # Not fatal to start, but warn
-    logger.warning("sandbox_user_missing", user=SANDBOX_USER)
+if not SANDBOX_SKIP_USER_CHECK:
+    try:
+        pwd.getpwnam(SANDBOX_USER)
+    except KeyError:
+        _RUNTIME_ISSUES.append(
+            f"Sandbox user '{SANDBOX_USER}' not found; sandbox execution may fail"
+        )
+        # Not fatal to start, but warn
+        logger.warning("sandbox_user_missing", user=SANDBOX_USER)
+else:
+    logger.info("sandbox_user_check_skipped", user=SANDBOX_USER)
 
 # Structlog config (simple JSON)
 structlog.configure(
@@ -88,6 +100,53 @@ structlog.configure(
         structlog.processors.JSONRenderer(),
     ]
 )
+
+# ---- Stage logging helper ----
+
+
+def _stage_log(event: str, stage: str, **kwargs: Any) -> None:
+    """Emit a lightweight, consistent stage log event.
+
+    Examples:
+      _stage_log("stage_enter", "planner", sid=sid, session_id=session_id)
+      _stage_log("stage_exit", "sandbox", sid=sid, exit_code=0)
+    """
+    logger.info(event, stage=stage, **kwargs)
+
+
+# ---- Cross-platform command normalization ----
+
+
+def _normalize_command_for_os(command: str) -> str:
+    """Normalize shell commands to the current OS to avoid mixed shells.
+
+    Policy:
+    - On non-Windows (Linux/macOS), translate common PowerShell/Windows-only commands
+      to safe Unix equivalents. Minimal mapping per requirements.
+    - On Windows, allow PowerShell cmdlets; optionally translate basic Unix ls to PS.
+    """
+    try:
+        sys_name = platform.system().lower()
+    except Exception:
+        sys_name = ""
+
+    original = command
+    normalized = command
+    lower = command.strip().lower()
+
+    if sys_name != "windows":
+        # Map Windows/PowerShell directory listings to Unix equivalent
+        if lower.startswith("get-childitem") or lower.startswith("gci") or lower.startswith("dir"):
+            normalized = "ls -la"
+    else:
+        # On Windows, if an agent produced Unix 'ls', map to a roughly equivalent PS cmdlet
+        if lower.startswith("ls"):
+            normalized = "Get-ChildItem -Force"
+
+    if normalized != original:
+        logger.info("command_normalized", source=original, target=normalized, os=sys_name)
+    return normalized
+
 
 # ---- Metrics ----
 
@@ -130,7 +189,15 @@ def _cat(msg: str, category: str) -> str:
 # ---- Server (FastAPI + Socket.IO) ----
 
 # Socket.IO server (ASGI)
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+# Allow tuning heartbeat to mitigate jittery networks
+_PING_TIMEOUT_MS = int(os.getenv("SOCKET_PING_TIMEOUT_MS", "25000"))
+_PING_INTERVAL_MS = int(os.getenv("SOCKET_PING_INTERVAL_MS", "20000"))
+sio = socketio.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins="*",
+    ping_timeout=_PING_TIMEOUT_MS / 1000.0,
+    ping_interval=_PING_INTERVAL_MS / 1000.0,
+)
 app = FastAPI()
 sio_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
@@ -348,6 +415,8 @@ async def execute_goal(sid, data):
                             session_id=session_id,
                             strict_mode=True,
                         )
+                        # Normalize cross-platform commands to avoid mixing Windows-only cmdlets on Unix
+                        norm_command = _normalize_command_for_os(command)
                         # Short-circuit steps that try to open GUI terminals or use Windows-only shells
                         forbidden_prefixes = (
                             "open -a Terminal",  # macOS GUI app
@@ -364,7 +433,7 @@ async def execute_goal(sid, data):
                         session_id=session_id,
                         step_index=step_index,
                         step=step,
-                        command=command,
+                        command=norm_command,
                         latency=time.time() - start_exec,
                     )
                 except Exception as e:
@@ -423,7 +492,7 @@ async def execute_goal(sid, data):
                 # Notify UI of step executing + command
                 await emit_json(
                     "step_executing",
-                    StepExecutingPayload(step=step, command=command).model_dump(),
+                    StepExecutingPayload(step=step, command=norm_command).model_dump(),
                     sid,
                 )
 
@@ -431,7 +500,7 @@ async def execute_goal(sid, data):
                 STEPS_EXECUTED.inc()
                 start_sbx = time.time()
                 with SANDBOX_LATENCY.time():
-                    result = sandbox.execute_command(command)
+                    result = sandbox.execute_command(norm_command)
 
                 # Emit results
                 await emit_json(
@@ -448,7 +517,7 @@ async def execute_goal(sid, data):
                 history.append(
                     {
                         "step": step,
-                        "command": command,
+                        "command": norm_command,
                         "stdout": _safe_str(result.get("stdout", "")),
                         "stderr": _safe_str(result.get("stderr", "")),
                         "exit_code": _safe_int(result.get("exit_code", -1)),
