@@ -24,6 +24,7 @@ TERMINUS_FAKE = (
 ENABLE_PLANNER_WEB_SEARCH = os.getenv("ENABLE_PLANNER_WEB_SEARCH", "false").lower() == "true"
 ENABLE_PLANNER_FILE_SEARCH = os.getenv("ENABLE_PLANNER_FILE_SEARCH", "false").lower() == "true"
 ENABLE_PLANNER_MCP = os.getenv("ENABLE_PLANNER_MCP", "false").lower() == "true"
+PLANNER_STRICT_JSON = os.getenv("PLANNER_STRICT_JSON", "true").lower() == "true"
 
 EXECUTOR_STRICT_FUNCTION = os.getenv("EXECUTOR_STRICT_FUNCTION", "true").lower() == "true"
 # Optional regex for single-line bash CFG guard, defaults to permissive. Planning-only for now.
@@ -126,6 +127,27 @@ def _parse_plan_text_to_list(plan_text: str) -> List[str]:
     return steps
 
 
+# ---- Planner JSON Schema (strict structured output) ----
+
+PLAN_SCHEMA: Dict[str, Any] = {
+    "name": "plan_schema",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["plan"],
+        "properties": {
+            "plan": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {"type": "string", "minLength": 1},
+            }
+        },
+    },
+    "strict": True,
+}
+
+
 def _build_planner_tools(
     enable_search: bool,
     enable_file_search: bool,
@@ -208,6 +230,9 @@ def run_planner(
             "text": {"verbosity": "low"},
             "metadata": _safety_tag(session_id),
         }
+        # Prefer strict structured JSON; fall back to freeform on unsupported cases
+        if PLANNER_STRICT_JSON:
+            kwargs["response_format"] = {"type": "json_schema", "json_schema": PLAN_SCHEMA}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = allowed
@@ -218,7 +243,19 @@ def run_planner(
 
     resp = _retry(_call)
     text = _extract_output_text(resp).strip()
-    steps = _parse_plan_text_to_list(text)
+    steps: List[str]
+    if PLANNER_STRICT_JSON:
+        try:
+            obj = json.loads(text)
+            # Strict path: expect obj to conform to PLAN_SCHEMA
+            if isinstance(obj, dict) and isinstance(obj.get("plan"), list):
+                steps = [str(x).strip() for x in obj["plan"] if str(x).strip()]
+            else:
+                steps = _parse_plan_text_to_list(text)
+        except Exception:
+            steps = _parse_plan_text_to_list(text)
+    else:
+        steps = _parse_plan_text_to_list(text)
     if not steps:
         # As a safety fallback, create a one-step plan.
         steps = [f"Analyze and begin: {user_goal}"]
