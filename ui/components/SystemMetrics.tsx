@@ -14,25 +14,25 @@ export default function SystemMetricsPanel({ metrics }: SystemMetricsProps) {
       label: "Tasks Completed",
       value: (metrics.tasksCompleted ?? 0).toLocaleString(),
       icon: TrendingUp,
-      color: "text-green-500"
+      color: "text-green-400"
     },
     {
       label: "Success Rate",
       value: `${(metrics.successRate ?? 0).toFixed(1)}%`,
       icon: Activity,
-      color: "text-blue-500"
+      color: "text-blue-400"
     },
     {
       label: "Avg Response Time",
       value: `${metrics.avgResponseTime ?? 0}ms`,
       icon: Clock,
-      color: "text-yellow-500"
+      color: "text-yellow-400"
     },
     {
       label: "Active Agents",
       value: (metrics.activeAgents ?? 0).toString(),
       icon: Users,
-      color: "text-purple-500"
+      color: "text-purple-400"
     }
   ];
 
@@ -41,9 +41,9 @@ export default function SystemMetricsPanel({ metrics }: SystemMetricsProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm"
+      className="bg-gray-800/30 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 shadow-2xl"
     >
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">System Metrics</h3>
+      <h3 className="text-lg font-semibold text-gray-100 mb-4">System Metrics</h3>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {metricItems.map((item, index) => (
@@ -52,25 +52,25 @@ export default function SystemMetricsPanel({ metrics }: SystemMetricsProps) {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: index * 0.1, duration: 0.3 }}
-            className="text-center p-3 bg-gray-50 rounded-lg"
+            className="text-center p-3 bg-gray-900/40 rounded-lg border border-gray-700/30"
           >
             <div className="flex items-center justify-center mb-2">
               <item.icon className={`w-5 h-5 ${item.color}`} />
             </div>
-            <div className="text-2xl font-bold text-gray-900 mb-1">
+            <div className="text-2xl font-bold text-gray-100 mb-1">
               {item.value}
             </div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-gray-400">
               {item.label}
             </div>
           </motion.div>
         ))}
       </div>
 
-      <div className="mt-6 pt-4 border-t border-gray-200">
+      <div className="mt-6 pt-4 border-t border-gray-700/50">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-500">Queue Depth:</span>
-          <span className="font-medium text-gray-900">{metrics.queueDepth ?? 0} pending</span>
+          <span className="text-gray-400">Queue Depth:</span>
+          <span className="font-medium text-gray-200">{metrics.queueDepth ?? 0} pending</span>
         </div>
       </div>
     </motion.div>

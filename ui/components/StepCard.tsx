@@ -28,15 +28,15 @@ export default function StepCard({
   const getStatusIcon = () => {
     switch (step.status) {
       case "success":
-        return <CheckCircle2 className="w-5 h-5 text-green-500" />;
+        return <CheckCircle2 className="w-5 h-5 text-[#98971a]" />;
       case "failed":
-        return <XCircle className="w-5 h-5 text-red-500" />;
+        return <XCircle className="w-5 h-5 text-[#cc241d]" />;
       case "executing":
-        return <Activity className="w-5 h-5 text-blue-500 animate-pulse" />;
+        return <Activity className="w-5 h-5 text-[#458588] animate-pulse" />;
       case "re-planning":
-        return <AlertCircle className="w-5 h-5 text-yellow-500 animate-pulse" />;
+        return <AlertCircle className="w-5 h-5 text-[#d79921] animate-pulse" />;
       default:
-        return <Clock className="w-5 h-5 text-gray-400" />;
+        return <Clock className="w-5 h-5 text-[#928374]" />;
     }
   };
 
@@ -44,15 +44,15 @@ export default function StepCard({
     const baseClasses = "px-2 py-1 rounded-full text-xs font-medium";
     switch (step.status) {
       case "success":
-        return `${baseClasses} bg-green-100 text-green-700`;
+        return `${baseClasses} bg-[#98971a]/20 text-[#98971a] border border-[#98971a]/50`;
       case "failed":
-        return `${baseClasses} bg-red-100 text-red-700`;
+        return `${baseClasses} bg-[#cc241d]/20 text-[#cc241d] border border-[#cc241d]/50`;
       case "executing":
-        return `${baseClasses} bg-blue-100 text-blue-700`;
+        return `${baseClasses} bg-[#458588]/20 text-[#458588] border border-[#458588]/50`;
       case "re-planning":
-        return `${baseClasses} bg-yellow-100 text-yellow-700`;
+        return `${baseClasses} bg-[#d79921]/20 text-[#d79921] border border-[#d79921]/50`;
       default:
-        return `${baseClasses} bg-gray-100 text-gray-500`;
+        return `${baseClasses} bg-[#928374]/20 text-[#928374] border border-[#928374]/50`;
     }
   };
 
@@ -76,13 +76,13 @@ export default function StepCard({
         delay: index * 0.12
       }}
       className={clsx(
-        "border rounded-lg p-6 bg-white shadow-sm transition-all duration-200",
+        "border rounded-xl p-6 bg-[#3c3836] shadow-xl transition-all duration-200",
         {
-          "border-blue-500 shadow-blue-100": step.status === "executing",
-          "border-green-500 shadow-green-100": step.status === "success",
-          "border-red-500 shadow-red-100": step.status === "failed",
-          "border-yellow-500 shadow-yellow-100": step.status === "re-planning",
-          "border-gray-200": step.status === "pending"
+          "border-[#458588] shadow-[#458588]/20": step.status === "executing",
+          "border-[#98971a] shadow-[#98971a]/20": step.status === "success",
+          "border-[#cc241d] shadow-[#cc241d]/20": step.status === "failed",
+          "border-[#d79921] shadow-[#d79921]/20": step.status === "re-planning",
+          "border-[#504945]": step.status === "pending"
         }
       )}
       role="listitem"
@@ -94,7 +94,7 @@ export default function StepCard({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-lg font-semibold text-gray-900">Step {index + 1}</h3>
+              <h3 className="text-lg font-semibold text-[#ebdbb2]">Step {index + 1}</h3>
               <span className={getStatusBadge()}>
                 {step.status === "re-planning" ? "Re-planning" : 
                  step.status.charAt(0).toUpperCase() + step.status.slice(1)}
@@ -102,16 +102,16 @@ export default function StepCard({
             </div>
             
             {/* Step Description */}
-            <p className="text-gray-600">{step.description}</p>
+            <p className="text-[#a89984]">{step.description}</p>
 
             {/* Command */}
             {step.command && (
               <div className="mt-4">
                 <div className="flex items-center space-x-2 mb-2">
-                  <Terminal className="w-4 h-4 text-gray-500" />
-                  <h4 className="text-sm font-medium text-gray-700">Command:</h4>
+                  <Terminal className="w-4 h-4 text-[#928374]" />
+                  <h4 className="text-sm font-medium text-[#a89984]">Command:</h4>
                 </div>
-                <div className="bg-gray-900 text-gray-100 p-3 rounded overflow-hidden">
+                <div className="bg-[#282828] text-[#ebdbb2] p-3 rounded-lg overflow-hidden border border-[#3c3836]">
                   <pre className="text-xs font-mono whitespace-pre-wrap">
                     <code>{step.command}</code>
                   </pre>
@@ -122,9 +122,9 @@ export default function StepCard({
             {/* Output */}
             {step.output && (
               <div className="mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Output:</h4>
-                <div className="bg-green-50 border border-green-200 p-3 rounded overflow-hidden max-h-40 overflow-y-auto">
-                  <pre className="text-xs font-mono whitespace-pre-wrap text-gray-800">
+                <h4 className="text-sm font-medium text-[#a89984] mb-2">Output:</h4>
+                <div className="bg-[#282828] border border-[#98971a]/50 p-3 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-[#b8bb26]">
                     {step.output}
                   </pre>
                 </div>
@@ -134,9 +134,9 @@ export default function StepCard({
             {/* Error */}
             {step.error && (
               <div className="mt-4">
-                <h4 className="text-sm font-medium text-red-700 mb-2">Error:</h4>
-                <div className="bg-red-50 border border-red-200 p-3 rounded overflow-hidden max-h-40 overflow-y-auto">
-                  <pre className="text-xs font-mono whitespace-pre-wrap text-red-800">
+                <h4 className="text-sm font-medium text-[#fb4934] mb-2">Error:</h4>
+                <div className="bg-[#282828] border border-[#cc241d]/50 p-3 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-[#fb4934]">
                     {step.error}
                   </pre>
                 </div>
@@ -146,7 +146,7 @@ export default function StepCard({
             {/* Exit Code */}
             {step.exitCode !== undefined && step.exitCode !== 0 && (
               <div className="mt-2">
-                <span className="text-xs text-red-600">Exit code: {step.exitCode}</span>
+                <span className="text-xs text-[#fb4934]">Exit code: {step.exitCode}</span>
               </div>
             )}
           </div>
@@ -155,14 +155,37 @@ export default function StepCard({
 
       {/* Status indicators */}
       {step.status === "executing" && (
-        <div className="mt-4 flex items-center space-x-2 text-blue-600 text-sm">
+        <div className="mt-4 flex items-center space-x-2 text-[#458588] text-sm">
           <Activity className="w-4 h-4 animate-pulse" />
-          <span>Executing command...</span>
+          <span className="flex items-center">
+            Executing command
+            <motion.span
+              className="inline-flex ml-1"
+              animate={{ opacity: [0, 1, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <span className="mx-0.5">.</span>
+            </motion.span>
+            <motion.span
+              className="inline-flex"
+              animate={{ opacity: [0, 1, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+            >
+              <span className="mx-0.5">.</span>
+            </motion.span>
+            <motion.span
+              className="inline-flex"
+              animate={{ opacity: [0, 1, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+            >
+              <span className="mx-0.5">.</span>
+            </motion.span>
+          </span>
         </div>
       )}
 
       {step.status === "re-planning" && (
-        <div className="mt-4 flex items-center space-x-2 text-yellow-600 text-sm">
+        <div className="mt-4 flex items-center space-x-2 text-[#d79921] text-sm">
           <AlertCircle className="w-4 h-4 animate-pulse" />
           <span>Re-planning due to error...</span>
         </div>

@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import StepCard from "@/components/StepCard";
 import ArrowDownConnector from "@/components/ArrowDown";
-import SystemMetricsPanel from "@/components/SystemMetrics";
 import { OrchestrationEngine } from "@/lib/orchestration";
 import { OrchestrationStep } from "@/lib/types";
 import { RotateCcw, Wifi, WifiOff, Send, Loader2, Link as LinkIcon } from "lucide-react";
@@ -126,30 +125,32 @@ export default function Home() {
     .filter(({ step }) => step.status !== "pending");
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <main className="min-h-screen bg-[#282828]">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+      <div className="bg-[#282828]/95 backdrop-blur-md border-b border-[#3c3836] sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Terminus</h1>
-              <p className="text-gray-600">The Obvious Next Way To Interact With AI</p>
+              <h1 className="text-3xl font-bold text-[#458588]">
+                Terminus
+              </h1>
+              <p className="text-[#a89984] text-sm">The Obvious Next Way To Interact With AI</p>
             </div>
             <div className="flex items-center space-x-3">
               {isConnected ? (
-                <div className="flex items-center space-x-2 text-green-600">
+                <div className="flex items-center space-x-2 text-[#98971a]">
                   <Wifi className="w-4 h-4" />
                   <span className="text-sm">Connected</span>
                 </div>
               ) : (
-                <div className="flex items-center space-x-2 text-red-600">
+                <div className="flex items-center space-x-2 text-[#cc241d]">
                   <WifiOff className="w-4 h-4" />
                   <span className="text-sm">Disconnected</span>
                 </div>
               )}
               <button
                 onClick={handleReset}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-[#3c3836] text-[#ebdbb2] rounded-lg hover:bg-[#504945] transition-all duration-200 border border-[#504945]"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>Reset</span>
@@ -159,24 +160,19 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* System Metrics */}
-        <div className="mb-8">
-          <SystemMetricsPanel metrics={engine.getMetrics()} />
-        </div>
-
+      <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Goal Input Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm mb-8"
+          className="bg-[#3c3836] rounded-xl border border-[#504945] p-6 shadow-2xl mb-8"
         >
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Execute Agent Goal</h3>
+          <h3 className="text-lg font-semibold text-[#ebdbb2] mb-4">Execute Agent Goal</h3>
 
           {/* Backend URL Configuration */}
           <div className="mb-4">
-            <label htmlFor="backend-url" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="backend-url" className="block text-sm font-medium text-[#a89984] mb-2">
               Backend Server URL
             </label>
             <div className="flex space-x-2">
@@ -185,11 +181,11 @@ export default function Home() {
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
                 placeholder="http://localhost:8000"
-                className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
+                className="flex-1 p-2 bg-[#282828] border border-[#504945] rounded-lg focus:ring-2 focus:ring-[#458588] focus:border-[#458588] text-[#ebdbb2] placeholder:text-[#928374] transition-colors"
               />
               <button
                 onClick={handleApplyServerUrl}
-                className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors flex items-center space-x-2"
+                className="px-3 py-2 bg-[#458588] text-white rounded-lg hover:bg-[#83a598] transition-all duration-200 flex items-center space-x-2"
               >
                 <LinkIcon className="w-4 h-4" />
                 <span>Apply</span>
@@ -199,7 +195,7 @@ export default function Home() {
 
           {/* Goal Input */}
           <div className="mb-4">
-            <label htmlFor="goal" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="goal" className="block text-sm font-medium text-[#a89984] mb-2">
               Enter a goal for the agent to execute:
             </label>
             <div className="flex space-x-2">
@@ -209,13 +205,13 @@ export default function Home() {
                 onChange={(e) => setGoal(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="e.g., Create a README.md file for this project"
-                className="flex-1 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-gray-900 placeholder:text-gray-500"
+                className="flex-1 p-3 bg-[#282828] border border-[#504945] rounded-lg focus:ring-2 focus:ring-[#458588] focus:border-[#458588] resize-none text-[#ebdbb2] placeholder:text-[#928374] transition-colors"
                 rows={2}
               />
               <button
                 onClick={handleExecuteGoal}
                 disabled={!goal.trim() || !isConnected || isExecuting}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                className="px-4 py-2 bg-[#458588] text-white rounded-lg hover:bg-[#83a598] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2 shadow-lg"
               >
                 {isExecuting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -229,22 +225,22 @@ export default function Home() {
 
           {/* Connection Help */}
           {!isConnected && (
-            <div className="p-4 bg-gray-50 rounded-md">
-              <h4 className="text-sm font-medium text-gray-900 mb-2">Backend Not Available</h4>
-              <p className="text-sm text-gray-600 mb-2">
+            <div className="p-4 bg-[#fb4934]/10 border border-[#cc241d] rounded-lg">
+              <h4 className="text-sm font-medium text-[#fb4934] mb-2">Backend Not Available</h4>
+              <p className="text-sm text-[#a89984] mb-2">
                 The backend service is not connected. To enable execution:
               </p>
-              <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
+              <ol className="text-sm text-[#a89984] space-y-1 list-decimal list-inside">
                 <li>
                   Start the Terminus backend:
                   {" "}
-                  <code className="bg-gray-200 px-1 rounded">
+                  <code className="bg-[#3c3836] px-1 rounded text-[#83a598]">
                     uvicorn agent_core.main:build_asgi --factory --reload --host 0.0.0.0 --port 8000
                   </code>
                 </li>
                 <li>
                   Ensure it&apos;s running on {" "}
-                  <code className="bg-gray-200 px-1 rounded">{serverUrl}</code>
+                  <code className="bg-[#3c3836] px-1 rounded text-[#83a598]">{serverUrl}</code>
                 </li>
                 <li>The page will automatically reconnect</li>
               </ol>
@@ -258,13 +254,13 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="bg-white rounded-lg border border-blue-200 p-8 shadow-sm mb-8"
+            className="bg-[#3c3836] rounded-xl border border-[#458588] p-8 shadow-2xl mb-8"
           >
             <div className="flex flex-col items-center justify-center space-y-4">
-              <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+              <Loader2 className="w-8 h-8 text-[#458588] animate-spin" />
               <div className="text-center">
-                <h3 className="text-lg font-semibold text-gray-900">Planning Your Workflow</h3>
-                <p className="text-sm text-gray-600 mt-2">Analyzing goal and creating execution steps...</p>
+                <h3 className="text-lg font-semibold text-[#ebdbb2]">Planning Your Workflow</h3>
+                <p className="text-sm text-[#a89984] mt-2">Analyzing goal and creating execution steps...</p>
               </div>
             </div>
           </motion.div>
@@ -305,24 +301,17 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
-            className="mt-8 p-6 bg-green-50 border border-green-200 rounded-lg text-center"
+            className="mt-8 p-6 bg-[#3c3836] border border-[#98971a] rounded-xl text-center"
           >
-            <div className="text-green-800 font-semibold mb-2">
+            <div className="text-[#b8bb26] font-semibold mb-2">
               🎉 Orchestration Complete!
             </div>
-            <p className="text-green-700">
+            <p className="text-[#a89984]">
               All steps in the workflow have been successfully completed.
             </p>
           </motion.div>
         )}
 
-        {/* Footer */}
-        <div className="mt-16 pt-8 border-t border-gray-200 text-center text-gray-500">
-          <p>Built with Next.js, Tailwind CSS, and Framer Motion</p>
-          <div className="mt-2 flex items-center justify-center space-x-4 text-sm">
-            <span>Goal Input → AI Planner → Step Executor → Secure Sandbox → System Monitor</span>
-          </div>
-        </div>
       </div>
     </main>
   );
