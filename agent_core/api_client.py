@@ -27,6 +27,9 @@ ENABLE_PLANNER_MCP = os.getenv("ENABLE_PLANNER_MCP", "false").lower() == "true"
 PLANNER_STRICT_JSON = os.getenv("PLANNER_STRICT_JSON", "true").lower() == "true"
 
 EXECUTOR_STRICT_FUNCTION = os.getenv("EXECUTOR_STRICT_FUNCTION", "true").lower() == "true"
+# Allow falling back to free-text parsing when non-strict schema parsing fails.
+# Default to false to keep executor output well-structured.
+EXECUTOR_ALLOW_TEXT_FALLBACK = os.getenv("EXECUTOR_ALLOW_TEXT_FALLBACK", "false").lower() == "true"
 # Optional regex for single-line bash CFG guard, defaults to permissive. Planning-only for now.
 EXECUTOR_CFG_SINGLE_LINE = os.getenv("EXECUTOR_CFG_SINGLE_LINE", r"^.+$")
 
@@ -142,6 +145,21 @@ PLAN_SCHEMA: Dict[str, Any] = {
                 "maxItems": 50,
                 "items": {"type": "string", "minLength": 1},
             }
+        },
+    },
+    "strict": True,
+}
+
+# ---- Executor JSON Schema (non-strict structured output) ----
+
+BASH_SCHEMA: Dict[str, Any] = {
+    "name": "bash_schema",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["command"],
+        "properties": {
+            "command": {"type": "string", "minLength": 1},
         },
     },
     "strict": True,
@@ -381,6 +399,8 @@ def run_executor(
             "text": {"verbosity": "low"},
             "metadata": _safety_tag(session_id),
         }
+        # Prefer structured output even in non-strict mode to avoid heuristic parsing
+        kwargs["response_format"] = {"type": "json_schema", "json_schema": BASH_SCHEMA}
         if previous_response_id:
             kwargs["previous_response_id"] = previous_response_id
         return client.responses.create(**kwargs)
@@ -410,14 +430,19 @@ def run_executor(
     if strict:
         resp = _retry(_call_function_strict)
         cmd = _extract_function_call_command(resp) or _extract_output_text(resp)
+        cmd = _to_single_line(cmd)
     else:
+        # Non-strict path now expects JSON matching BASH_SCHEMA
         resp = _retry(_call_text_only)
-        cmd = _extract_output_text(resp)
-
-    cmd = _to_single_line(cmd)
-    # Final guard: ensure single line and non-empty
-    if not cmd or "\n" in cmd:
-        # Weak fallback
+        raw = _extract_output_text(resp)
+        cmd = ""
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict) and isinstance(obj.get("command"), str):
+                cmd = obj["command"]
+        except Exception:
+            if EXECUTOR_ALLOW_TEXT_FALLBACK:
+                cmd = raw
         cmd = _to_single_line(cmd)
 
     return cmd
