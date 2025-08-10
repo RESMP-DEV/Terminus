@@ -56,7 +56,7 @@ def _safety_tag(session_id: str) -> Dict[str, Any]:
     """
     return {"safety_identifier": f"{SAFETY_IDENTIFIER_PREFIX}{session_id}"}
 
-async def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
+def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
     """
     Retry fn() on transient API errors only.
     Do NOT retry invalid request errors (400-series schema/param issues).
@@ -64,7 +64,7 @@ async def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
     last = None
     for i in range(retries + 1):
         try:
-            return await fn()
+            return fn()
         except APIError as e:
             # Avoid retrying client-side invalid requests (commonly 400)
             status = getattr(e, "status_code", None)
@@ -74,7 +74,7 @@ async def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
                 last = e
                 if i == retries:
                     raise
-                await asyncio.sleep(backoff * (2**i))
+                time.sleep(backoff * (2**i))
                 continue
             # Non-transient -> re-raise immediately
             raise
@@ -83,9 +83,8 @@ async def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
             last = e
             if i == retries:
                 raise
-            await asyncio.sleep(backoff * (2**i))
+            time.sleep(backoff * (2**i))
     if last:
-        raise last
         raise last
 
 
@@ -376,14 +375,15 @@ def _to_single_line(cmd: str) -> str:
     single = " ".join(cmd.replace("\t", " ").replace("\r", " ").replace("\n", " ").split())
     return single.strip()
 
-async def run_executor(
+def run_executor(
     sub_task: str,
     session_id: str,
+    strict_mode: bool = False,
     previous_response_id: Optional[str] = None,
 ) -> str:
     """
     Translate a sub-task into a single-line executable bash command
-    by calling the local executor API asynchronously.
+    by calling the local executor API.
 
     Returns: single-line bash command as str.
     """
@@ -402,10 +402,10 @@ async def run_executor(
         # Default noop
         return "echo noop"
 
-    async def _call_local_executor():
+    def _call_local_executor():
         try:
-            async with httpx.AsyncClient(timeout=30.0) as http_client:
-                response = await http_client.post(
+            with httpx.Client(timeout=30.0) as http_client:
+                response = http_client.post(
                     EXECUTOR_API_URL, json={"prompt": sub_task, "max_new_tokens": 256}
                 )
                 response.raise_for_status()
@@ -417,6 +417,5 @@ async def run_executor(
         except json.JSONDecodeError as e:
             raise Exception(f"Failed to decode JSON from local executor: {e}") from e
 
-    command = await _retry(_call_local_executor)
+    command = _retry(_call_local_executor)
     return _to_single_line(command or "")
-    return cmd

@@ -214,3 +214,6 @@ logs/demo2.txt
 oai_gpt-oss_model_card.pdf
 
 CLAUDE.md
+/ui/.next
+/ui/node_modules
+ui/next-env.d.ts

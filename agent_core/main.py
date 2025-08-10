@@ -197,6 +197,34 @@ async def emit_json(event_type: str, payload: Dict[str, Any], sid: str):
 
 @app.on_event("startup")
 async def _on_startup():
+    # Ensure the sandbox is configured correctly
+    try:
+        startup_script_path = os.path.join(
+            os.path.dirname(__file__), "..", "sandbox", "setup_sandbox.sh"
+        )
+        if os.path.exists(startup_script_path):
+            logger.info("Running sandbox setup script", script_path=startup_script_path)
+            # Use asyncio.create_subprocess_shell for non-blocking execution
+            process = await asyncio.create_subprocess_shell(
+                f"bash {startup_script_path}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            if process.returncode != 0:
+                logger.error(
+                    "Sandbox setup failed",
+                    returncode=process.returncode,
+                    stdout=stdout.decode(),
+                    stderr=stderr.decode(),
+                )
+            else:
+                logger.info("Sandbox setup complete", stdout=stdout.decode())
+        else:
+            logger.warning("Sandbox setup script not found", path=startup_script_path)
+    except Exception as e:
+        logger.error("Error during sandbox setup", error=str(e))
+
     logger.info("engine_startup", ready=_RUNTIME_READY, issues=_RUNTIME_ISSUES)
 
 
@@ -342,7 +370,7 @@ async def execute_goal(sid, data):
                 try:
                     start_exec = time.time()
                     with EXECUTOR_LATENCY.time():
-                        command = await api_client.run_executor(
+                        command = api_client.run_executor(
                             sub_task=step,
                             session_id=session_id,
                         )

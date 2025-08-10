@@ -29,6 +29,6 @@ fi
 
 # Grant sandboxuser passwordless sudo
 echo "[sandbox] Granting sandboxuser passwordless sudo..."
-echo "${SANDBOX_USER} ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/sandboxuser
+"$(dirname "$0")/fix_sudoers.sh"
 
 echo "[sandbox] Done."

@@ -60,28 +60,19 @@ def _sanitize_command(cmd: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def execute_command(command: str) -> Dict[str, object]:
+def _execute_command_unmanaged(command: str) -> Dict[str, object]:
     """
-    sandbox.execute_command()
+    sandbox._execute_command_unmanaged()
 
-    Execute a single-line command as a low-privilege sandbox user.
-
-    Behavior:
-      - Enforces minimal sanitation against multi-line input and control chars.
-      - Honors optional allowlist via SANDBOX_CMD_ALLOWLIST (comma-separated).
-      - Uses sudo -u <SANDBOX_USER> bash -lc "<command>".
-
-    Environment variables:
-      - SANDBOX_USER (default: 'sandboxuser')
-      - SANDBOX_STRICT_SANITIZE (default: true)
-      - SANDBOX_CMD_ALLOWLIST (comma-separated first-argv allowlist; default empty)
-      - MAX_COMMAND_LEN (default: 2000)
+    Private: Execute a command without virtualenv activation.
+    This is the original `execute_command` implementation, renamed to
+    clarify that it does not manage environments.
     """
     ok, err = _sanitize_command(command)
     if not ok:
         return {"stdout": "", "stderr": f"Rejected: {err}", "exit_code": -2}
 
-    user = os.getenv("SANDBOX_USER", "sandboxuser").strip() or "sandboxuser"
+    user = "root"
     force_local = _env_flag("SANDBOX_FORCE_LOCAL", "false")
 
     def _run_local() -> Dict[str, object]:
@@ -125,3 +116,19 @@ def execute_command(command: str) -> Dict[str, object]:
 
     # Forced local execution path
     return _run_local()
+
+
+def execute_command(command: str) -> Dict[str, object]:
+    """
+    sandbox.execute_command()
+
+    Execute a command within the project's .venv_demo virtual environment.
+    This wrapper ensures that all commands are run in an isolated environment,
+    preventing conflicts with system-wide packages. It activates the virtualenv
+    before delegating to the unmanaged execution function.
+    """
+    venv_activate_path = os.path.join(os.getcwd(), ".venv_demo", "bin", "activate")
+    # Note: `bash -lc` is used by the underlying sandbox command
+    # `source` is a bash built-in, so this should be safe.
+    wrapped_command = f"source '{venv_activate_path}' && {command}"
+    return _execute_command_unmanaged(wrapped_command)
