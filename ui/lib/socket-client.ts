@@ -88,9 +88,8 @@ class SocketClient {
     events.forEach(event => {
       this.socket?.on(event, (payload: unknown) => {
         console.log(`[Socket] Received event: ${event}`, payload);
-        // Backend emits objects shaped as { type, payload }
-        const data = payload && typeof payload === "object" && payload !== null && "payload" in payload ? (payload as { payload: unknown }).payload : payload;
-        this.emit(event, data);
+        // Backend emits objects shaped as { type, payload } - pass through
+        this.emit(event, payload);
       });
     });
 
