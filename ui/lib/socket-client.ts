@@ -132,6 +132,10 @@ class SocketClient {
     }
   }
 
+  getSocket() {
+    return this.socket;
+  }
+
   executeGoal(goal: string) {
     if (this.socket?.connected) {
       // Backend expects a wrapper: { payload: { goal } }
