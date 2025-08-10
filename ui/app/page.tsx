@@ -97,7 +97,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Terminus</h1>
-              <p className="text-gray-600">Agent Orchestration Platform</p>
+              <p className="text-gray-600">The Obvious Next Way To Interact With AI</p>
             </div>
             <div className="flex items-center space-x-3">
               {isConnected ? (

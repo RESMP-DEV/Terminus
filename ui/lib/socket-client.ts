@@ -7,7 +7,11 @@ export interface SocketEvents {
   status: (payload: { message: string }) => void;
   plan_generated: (payload: { plan: string[] }) => void;
   step_executing: (payload: { step: string; command?: string }) => void;
-  step_result: (payload: { stdout: string; stderr: string; exit_code: number }) => void;
+  step_result: (payload: {
+    stdout: string;
+    stderr: string;
+    exit_code: number;
+  }) => void;
   error_detected: (payload: { error: string; failed_step: string }) => void;
   re_planning: () => void;
   workflow_complete: (payload: { status: string }) => void;

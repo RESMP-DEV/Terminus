@@ -111,8 +111,8 @@ export default function StepCard({
                   <Terminal className="w-4 h-4 text-gray-500" />
                   <h4 className="text-sm font-medium text-gray-700">Command:</h4>
                 </div>
-                <div className="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto">
-                  <pre className="text-xs font-mono whitespace-pre">
+                <div className="bg-gray-900 text-gray-100 p-3 rounded overflow-hidden">
+                  <pre className="text-xs font-mono whitespace-pre-wrap">
                     <code>{step.command}</code>
                   </pre>
                 </div>
@@ -123,8 +123,8 @@ export default function StepCard({
             {step.output && (
               <div className="mt-4">
                 <h4 className="text-sm font-medium text-gray-700 mb-2">Output:</h4>
-                <div className="bg-green-50 border border-green-200 p-3 rounded overflow-x-auto max-h-40 overflow-y-auto">
-                  <pre className="text-xs font-mono whitespace-pre text-gray-800">
+                <div className="bg-green-50 border border-green-200 p-3 rounded overflow-hidden max-h-40 overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-gray-800">
                     {step.output}
                   </pre>
                 </div>
@@ -135,8 +135,8 @@ export default function StepCard({
             {step.error && (
               <div className="mt-4">
                 <h4 className="text-sm font-medium text-red-700 mb-2">Error:</h4>
-                <div className="bg-red-50 border border-red-200 p-3 rounded overflow-x-auto max-h-40 overflow-y-auto">
-                  <pre className="text-xs font-mono whitespace-pre text-red-800">
+                <div className="bg-red-50 border border-red-200 p-3 rounded overflow-hidden max-h-40 overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-red-800">
                     {step.error}
                   </pre>
                 </div>

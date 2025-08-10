@@ -12,25 +12,25 @@ export default function SystemMetricsPanel({ metrics }: SystemMetricsProps) {
   const metricItems = [
     {
       label: "Tasks Completed",
-      value: metrics.tasksCompleted.toLocaleString(),
+      value: (metrics.tasksCompleted ?? 0).toLocaleString(),
       icon: TrendingUp,
       color: "text-green-500"
     },
     {
       label: "Success Rate",
-      value: `${metrics.successRate.toFixed(1)}%`,
+      value: `${(metrics.successRate ?? 0).toFixed(1)}%`,
       icon: Activity,
       color: "text-blue-500"
     },
     {
       label: "Avg Response Time",
-      value: `${metrics.avgResponseTime}ms`,
+      value: `${metrics.avgResponseTime ?? 0}ms`,
       icon: Clock,
       color: "text-yellow-500"
     },
     {
       label: "Active Agents",
-      value: metrics.activeAgents.toString(),
+      value: (metrics.activeAgents ?? 0).toString(),
       icon: Users,
       color: "text-purple-500"
     }
@@ -70,7 +70,7 @@ export default function SystemMetricsPanel({ metrics }: SystemMetricsProps) {
       <div className="mt-6 pt-4 border-t border-gray-200">
         <div className="flex items-center justify-between text-sm">
           <span className="text-gray-500">Queue Depth:</span>
-          <span className="font-medium text-gray-900">{metrics.queueDepth} pending</span>
+          <span className="font-medium text-gray-900">{metrics.queueDepth ?? 0} pending</span>
         </div>
       </div>
     </motion.div>
