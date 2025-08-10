@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 from openai import APIError, OpenAI
 
-from agent_core.schemas import BASH_SCHEMA, PLAN_SCHEMA
+from agent_core.schemas import PLAN_SCHEMA
 
 load_dotenv()
 
@@ -46,6 +46,11 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def _safety_tag(session_id: str) -> Dict[str, Any]:
+    """Build metadata tag used by the model for safety correlation.
+
+    The tag is propagated to Responses API requests to correlate
+    model-side safety logs/metadata with a specific runtime session.
+    """
     return {"safety_identifier": f"{SAFETY_IDENTIFIER_PREFIX}{session_id}"}
 
 
@@ -79,6 +84,43 @@ def _retry(fn, *, retries: int = 2, backoff: float = 0.75):
             time.sleep(backoff * (2**i))
     if last:
         raise last
+
+
+def _responses_create_compat(kwargs: Dict[str, Any]):
+    """
+    Create a Responses request with compatibility fallbacks for SDKs that
+    might not support newer optional fields (response_format, tools, etc.).
+
+    Strategy: progressively drop optional keys on TypeError and retry.
+    """
+    optional_drop_order = [
+        "response_format",
+        "tools",
+        "tool_choice",
+        "reasoning",
+        "text",
+        "metadata",
+        "previous_response_id",
+    ]
+
+    attempt_kwargs = dict(kwargs)
+    for _ in range(len(optional_drop_order) + 1):
+        try:
+            return client.responses.create(**attempt_kwargs)
+        except TypeError:
+            if not optional_drop_order:
+                raise
+            # Drop the next optional key that exists in the kwargs
+            dropped = False
+            for key in list(optional_drop_order):
+                if key in attempt_kwargs:
+                    attempt_kwargs.pop(key, None)
+                    optional_drop_order.remove(key)
+                    dropped = True
+                    break
+            if not dropped:
+                # Nothing left to drop -> re-raise
+                raise
 
 
 def _extract_output_text(response) -> str:
@@ -139,6 +181,12 @@ def _build_planner_tools(
     vector_store_ids: Optional[List[str]] = None,
     mcp_servers: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Construct tool and tool_choice payloads for the planner call.
+
+    Returns the pair (tools, allowed_tool_choice). Tools are optional
+    and controlled via environment toggles; allowed_tool_choice is the
+    'tool_choice' object constraining which tools may be used.
+    """
     tools: List[Dict[str, Any]] = []
     allowed: Optional[Dict[str, Any]] = None
     allow_names: List[Any] = []
@@ -223,7 +271,7 @@ def run_planner(
         if previous_response_id:
             kwargs["previous_response_id"] = previous_response_id
 
-        return client.responses.create(**kwargs)
+        return _responses_create_compat(kwargs)
 
     resp = _retry(_call)
     text = _extract_output_text(resp).strip()
@@ -316,7 +364,12 @@ def _extract_function_call_command(resp) -> Optional[str]:
 
 
 def _to_single_line(cmd: str) -> str:
-    # Collapse newlines/tabs and excessive spaces to a single line
+    """Normalize a shell snippet to a single line.
+
+    Collapses newlines and tabs to spaces and squashes excessive
+    whitespace so downstream sandbox checks can rely on a stable,
+    single-line representation.
+    """
     single = " ".join(cmd.replace("\t", " ").replace("\r", " ").replace("\n", " ").split())
     return single.strip()
 
@@ -365,11 +418,9 @@ def run_executor(
             "text": {"verbosity": "low"},
             "metadata": _safety_tag(session_id),
         }
-        # Prefer structured output even in non-strict mode to avoid heuristic parsing
-        kwargs["response_format"] = {"type": "json_schema", "json_schema": BASH_SCHEMA}
         if previous_response_id:
             kwargs["previous_response_id"] = previous_response_id
-        return client.responses.create(**kwargs)
+        return _responses_create_compat(kwargs)
 
     def _call_function_strict():
         tools = _emit_bash_tools_cfg()
@@ -391,24 +442,27 @@ def run_executor(
         }
         if previous_response_id:
             kwargs["previous_response_id"] = previous_response_id
-        return client.responses.create(**kwargs)
+        return _responses_create_compat(kwargs)
 
     if strict:
         resp = _retry(_call_function_strict)
         cmd = _extract_function_call_command(resp) or _extract_output_text(resp)
         cmd = _to_single_line(cmd)
     else:
-        # Non-strict path now expects JSON matching BASH_SCHEMA
         resp = _retry(_call_text_only)
         raw = _extract_output_text(resp)
-        cmd = ""
+        cmd = raw
         try:
             obj = json.loads(raw)
-            if isinstance(obj, dict) and isinstance(obj.get("command"), str):
+            if (
+                isinstance(obj, dict)
+                and isinstance(obj.get("command"), str)
+                and obj.get("command", "").strip()
+            ):
                 cmd = obj["command"]
         except Exception:
-            if EXECUTOR_ALLOW_TEXT_FALLBACK:
-                cmd = raw
+            # Fallback to raw text when JSON parsing fails
+            pass
         cmd = _to_single_line(cmd)
 
     return cmd
