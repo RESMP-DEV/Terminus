@@ -34,6 +34,7 @@ from agent_core.types import (
 
 
 def _safe_int(value: object, default: int = -1) -> int:
+    """Best-effort conversion to int; returns default on failure."""
     try:
         if isinstance(value, (int,)):
             return int(value)
@@ -46,6 +47,7 @@ def _safe_int(value: object, default: int = -1) -> int:
 
 
 def _safe_str(value: object, default: str = "") -> str:
+    """Best-effort conversion to str; returns default on failure or None."""
     try:
         if value is None:
             return default

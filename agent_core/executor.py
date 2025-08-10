@@ -4,7 +4,11 @@ from agent_core import api_client
 
 
 def _ephemeral_session_id() -> str:
-    # Generate a short, unique session id for safety_identifier when none is provided.
+    """Generate a short, unique session id for safety tagging.
+
+    Used when the public wrapper is called without a runtime-provided
+    session identifier to ensure safety_identifier propagation.
+    """
     return uuid.uuid4().hex[:12]
 
 
