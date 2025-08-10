@@ -106,7 +106,7 @@ export default function LiveDemo() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm"
+      className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm text-gray-900"
     >
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Live Backend Integration</h3>
@@ -136,7 +136,7 @@ export default function LiveDemo() {
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
             placeholder="http://localhost:8000"
-            className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
           />
           <button
             onClick={handleApplyServerUrl}
@@ -160,7 +160,7 @@ export default function LiveDemo() {
             onChange={(e) => setGoal(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="e.g., Create a README.md file for this project"
-            className="flex-1 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+            className="flex-1 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-gray-900 placeholder:text-gray-500"
             rows={2}
           />
           <button
