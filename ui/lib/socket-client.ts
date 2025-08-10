@@ -23,7 +23,18 @@ class SocketClient {
     process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
   private currentUrl: string | null = null;
 
+  private normalizeUrl(url: string): string {
+    try {
+      const u = new URL(url);
+      // Strip trailing slash for stable rendering
+      return `${u.protocol}//${u.host}`;
+    } catch {
+      return url.replace(/\/+$/, "");
+    }
+  }
+
   connect(url: string = SocketClient.DEFAULT_BACKEND_URL) {
+    url = this.normalizeUrl(url);
     // If already connected to the same URL, reuse connection
     if (this.socket?.connected && this.currentUrl === url) return this.socket;
 

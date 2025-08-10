@@ -13,13 +13,18 @@ export default function LiveDemo() {
   const [lastResult, setLastResult] = useState("");
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState("");
-  const [serverUrl, setServerUrl] = useState<string>(
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("terminus.backendUrl") || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
-      : process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
-  );
+  // Use a stable initial default during SSR/first render
+  const [serverUrl, setServerUrl] = useState<string>(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000");
 
   useEffect(() => {
+    // Apply localStorage override only on client to avoid hydration mismatch
+    try {
+      if (typeof window !== "undefined") {
+        const saved = window.localStorage.getItem("terminus.backendUrl");
+        if (saved) setServerUrl(saved);
+      }
+    } catch {}
+
     // Try to connect to backend
     socketClient.connect(serverUrl);
 
