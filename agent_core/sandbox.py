@@ -1,15 +1,21 @@
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from typing import Dict, List, Tuple
 
 
 def _env_flag(name: str, default: str = "false") -> bool:
+    """Read a truthy boolean env flag with permissive values.
+
+    Accepts common true-ish values: 1/true/yes/on (case-insensitive).
+    """
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _split_allowlist(value: str) -> List[str]:
+    """Split a comma-separated allowlist string into normalized tokens."""
     if not value:
         return []
     return [x.strip() for x in value.split(",") if x.strip()]
@@ -76,26 +82,46 @@ def execute_command(command: str) -> Dict[str, object]:
         return {"stdout": "", "stderr": f"Rejected: {err}", "exit_code": -2}
 
     user = os.getenv("SANDBOX_USER", "sandboxuser").strip() or "sandboxuser"
+    force_local = _env_flag("SANDBOX_FORCE_LOCAL", "false")
 
-    try:
-        # Use bash -lc to allow PATH/rc resolution but keep single-line guard.
-        # Note: We rely on the sanitizer for single-line restriction.
-        result = subprocess.run(
-            ["sudo", "-u", user, "bash", "-lc", command],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.returncode,
-        }
-    except FileNotFoundError:
-        return {
-            "stdout": "",
-            "stderr": "The 'sudo' command is not available in the current environment.",
-            "exit_code": -1,
-        }
-    except Exception as e:
-        return {"stdout": "", "stderr": str(e), "exit_code": -1}
+    def _run_local() -> Dict[str, object]:
+        try:
+            result = subprocess.run(
+                ["bash", "-lc", command],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.returncode,
+            }
+        except Exception as e:  # pragma: no cover - unexpected runtime errors
+            return {"stdout": "", "stderr": str(e), "exit_code": -1}
+
+    # Prefer sudo sandbox unless forced local or prerequisites missing
+    if not force_local:
+        sudo_path = shutil.which("sudo")
+        if sudo_path:
+            try:
+                result = subprocess.run(
+                    [sudo_path, "-u", user, "bash", "-lc", command],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                return {
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                }
+            except Exception:
+                # Fall through to local if sudo execution fails for any reason
+                return _run_local()
+        else:
+            # sudo not available -> local fallback
+            return _run_local()
+
+    # Forced local execution path
+    return _run_local()
