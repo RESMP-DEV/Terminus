@@ -40,10 +40,17 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+If your backend is not on the default `http://localhost:8000`, set an environment variable before starting the UI:
+
+```bash
+export NEXT_PUBLIC_BACKEND_URL="http://your-backend-host:port"
+npm run dev
+```
+
 ### Backend Connection
 The UI automatically connects to the Terminus backend when available:
-1. Start backend: `python agent_core/main.py`
-2. Ensure it's running on `localhost:5000` 
+1. Start backend (recommended): `uvicorn agent_core.main:build_asgi --factory --reload --host 0.0.0.0 --port 8000`
+2. Ensure it's running on `http://localhost:8000` (or set `NEXT_PUBLIC_BACKEND_URL` to your backend URL)
 3. UI will show "Connected" status and enable live functionality
 
 ## 📁 Project Structure

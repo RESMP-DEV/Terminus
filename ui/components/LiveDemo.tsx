@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { socketClient } from "@/lib/socket-client";
-import { Wifi, WifiOff, Send, Loader2 } from "lucide-react";
+import { Wifi, WifiOff, Send, Loader2, Link as LinkIcon } from "lucide-react";
 
 export default function LiveDemo() {
   const [isConnected, setIsConnected] = useState(false);
@@ -13,10 +13,15 @@ export default function LiveDemo() {
   const [lastResult, setLastResult] = useState("");
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState("");
+  const [serverUrl, setServerUrl] = useState<string>(
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("terminus.backendUrl") || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+      : process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+  );
 
   useEffect(() => {
     // Try to connect to backend
-    socketClient.connect();
+    socketClient.connect(serverUrl);
     
     const unsubscribes = [
       socketClient.on("plan_generated", (payload) => {
@@ -61,7 +66,7 @@ export default function LiveDemo() {
       clearInterval(interval);
       unsubscribes.forEach(unsub => unsub());
     };
-  }, []);
+  }, [serverUrl]);
 
   const handleExecuteGoal = () => {
     if (goal.trim() && isConnected) {
@@ -72,6 +77,20 @@ export default function LiveDemo() {
       setIsExecuting(true);
       
       socketClient.executeGoal(goal.trim());
+    }
+  };
+
+  const handleApplyServerUrl = () => {
+    const url = serverUrl.trim();
+    if (!url) return;
+    try {
+      // lightweight validation
+      const u = new URL(url);
+      window.localStorage.setItem("terminus.backendUrl", u.toString());
+      // reconnect with new URL
+      socketClient.connect(u.toString());
+    } catch {
+      // ignore invalid URL; a real app could surface a toast
     }
   };
 
@@ -103,6 +122,29 @@ export default function LiveDemo() {
               <span className="text-sm">Disconnected</span>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Backend URL input */}
+      <div className="mb-4">
+        <label htmlFor="backend-url" className="block text-sm font-medium text-gray-700 mb-2">
+          Backend Server URL
+        </label>
+        <div className="flex space-x-2">
+          <input
+            id="backend-url"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            placeholder="http://localhost:8000"
+            className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          <button
+            onClick={handleApplyServerUrl}
+            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors flex items-center space-x-2"
+          >
+            <LinkIcon className="w-4 h-4" />
+            <span>Apply</span>
+          </button>
         </div>
       </div>
 
@@ -190,8 +232,17 @@ export default function LiveDemo() {
             The live backend integration is not connected. To enable real-time functionality:
           </p>
           <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
-            <li>Start the Terminus backend: <code className="bg-gray-200 px-1 rounded">python agent_core/main.py</code></li>
-            <li>Ensure it&#39;s running on <code className="bg-gray-200 px-1 rounded">localhost:5000</code></li>
+            <li>
+              Start the Terminus backend:
+              {" "}
+              <code className="bg-gray-200 px-1 rounded">
+                uvicorn agent_core.main:build_asgi --factory --reload --host 0.0.0.0 --port 8000
+              </code>
+            </li>
+            <li>
+              Ensure it&apos;s running on {" "}
+              <code className="bg-gray-200 px-1 rounded">{serverUrl}</code>
+            </li>
             <li>Refresh this page to reconnect</li>
           </ol>
         </div>
