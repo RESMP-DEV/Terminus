@@ -15,6 +15,7 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
   const [goal, setGoal] = useState("");
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isPlanning, setIsPlanning] = useState(false);
   const [serverUrl, setServerUrl] = useState<string>(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000");
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -30,6 +31,35 @@ export default function Home() {
     const unsubscribe = engine.subscribe((newSteps) => {
       console.log("[React] Received step update:", newSteps.map(s => `${s.id}:${s.status}`).join(" | "));
       setSteps([...newSteps]); // Force new array reference for React
+      
+      // Hide planning state when we receive steps
+      if (newSteps.length > 0 && isPlanning) {
+        setIsPlanning(false);
+      }
+      
+      // Auto-scroll to the currently executing or most recent step
+      setTimeout(() => {
+        // Find the executing step, or the last non-pending step
+        let targetIndex = newSteps.findIndex(s => s.status === "executing");
+        if (targetIndex === -1) {
+          // No executing step, find the last step that's not pending
+          for (let i = newSteps.length - 1; i >= 0; i--) {
+            if (newSteps[i].status !== "pending") {
+              targetIndex = i;
+              break;
+            }
+          }
+        }
+        
+        // Scroll to the target step if found
+        if (targetIndex >= 0 && stepRefs.current[targetIndex]) {
+          stepRefs.current[targetIndex]?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center'
+          });
+        }
+      }, 100); // Small delay to ensure DOM is updated
+      
       // Update execution state based on steps
       const hasActiveSteps = newSteps.some(s => s.status === "executing");
       const allCompleted = newSteps.every(s => s.status === "success" || s.status === "pending");
@@ -54,7 +84,14 @@ export default function Home() {
   const handleExecuteGoal = () => {
     if (goal.trim() && isConnected) {
       setGoal(goal.trim());
+      setIsPlanning(true); // Start planning state
+      setSteps([]); // Clear any previous steps
       engine.executeGoal(goal.trim(), serverUrl);
+      
+      // Fallback: hide planning state after 30 seconds if no response
+      setTimeout(() => {
+        setIsPlanning(false);
+      }, 30000);
     }
   };
 
@@ -214,6 +251,24 @@ export default function Home() {
             </div>
           )}
         </motion.div>
+
+        {/* Planning Loading State */}
+        {isPlanning && steps.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-white rounded-lg border border-blue-200 p-8 shadow-sm mb-8"
+          >
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-gray-900">Planning Your Workflow</h3>
+                <p className="text-sm text-gray-600 mt-2">Analyzing goal and creating execution steps...</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Orchestration Flow */}
         <motion.div
